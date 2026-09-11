@@ -7,6 +7,8 @@ Verifies, against the real IngestServer / Database / FastAPI app:
   3. First viewer -> 10 Hz downstream control (interval=100);
      last viewer leaves -> 0.1 Hz (interval=10000).
   4. GET /api/v1/history returns the persisted samples in descending order.
+  5. A burst of samples faster than db_store_interval_ms only persists one
+     row - the DB-store throttle - while every sample still gets broadcast.
 
 Run:  cd python && uv run python -m tests.e2e
 """
@@ -64,6 +66,7 @@ async def run() -> int:
     config.db_flush_interval = 0.2
     config.tcp_host = "127.0.0.1"
     config.tcp_port = INGEST_PORT
+    config.db_store_interval_ms = 0       # unthrottled for the reassembly/history checks below
 
     app = App()
     cfg = uvicorn.Config(app.app, host="127.0.0.1", port=WEB_PORT, log_level="warning")
@@ -139,6 +142,22 @@ async def run() -> int:
             empty = (await client.get(f"http://127.0.0.1:{WEB_PORT}/api/v1/history",
                                       params={"start_ts": 0, "end_ts": 0})).json()
             check("history range filter (empty range) returns 0", len(empty) == 0)
+
+        # 7) DB-store throttle: a burst of high-rate samples should persist
+        #    only one row per db_store_interval_ms, not one per sample.
+        config.db_store_interval_ms = 300
+        burst_dev_ts = [3000, 3001, 3002, 3003]
+        for dts in burst_dev_ts:
+            dev_writer.write(make_sample(dts, 12.0, 500.0))
+            await dev_writer.drain()
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.4)  # let the throttle window + db flush interval pass
+        async with httpx.AsyncClient() as client:
+            rows = (await client.get(f"http://127.0.0.1:{WEB_PORT}/api/v1/history",
+                                     params={"limit": 100})).json()
+            burst_rows = [r for r in rows if r["dev_ts"] in burst_dev_ts]
+            check("high-rate burst persists only 1 row (throttled)",
+                  len(burst_rows) == 1, f"got {len(burst_rows)}")
 
         dev_writer.close()
         await dev_writer.wait_closed()

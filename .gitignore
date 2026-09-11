@@ -12,3 +12,7 @@ data/
 
 # Tooling
 .uv/
+
+# Web dashboard (built assets)
+web/node_modules/
+web/dist/

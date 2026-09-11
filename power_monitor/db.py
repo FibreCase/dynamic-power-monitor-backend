@@ -48,6 +48,7 @@ class Database:
         self._task = asyncio.create_task(self._writer(), name="db-writer")
 
     def _init_db(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
             self._conn.execute("PRAGMA journal_mode=WAL;")

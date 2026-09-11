@@ -1,0 +1,154 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildWsUrl } from "../api";
+import { buildStackedOption, METRICS } from "../chartOption";
+import EChart from "./EChart";
+import StatTile from "./StatTile";
+
+const WINDOW_OPTIONS = [
+  { ms: 30_000, label: "30 秒" },
+  { ms: 60_000, label: "1 分钟" },
+  { ms: 120_000, label: "2 分钟" },
+  { ms: 300_000, label: "5 分钟" },
+];
+
+const RENDER_TICK_MS = 200; // chart refresh cadence, independent of the device's 0.1-10 Hz sample rate
+
+const LINK_TONE = { connecting: "default", connected: "good", reconnecting: "warning" };
+const LINK_LABEL = { connecting: "连接中", connected: "已连接", reconnecting: "重连中" };
+
+function fmt(n, digits) {
+  return typeof n === "number" ? n.toFixed(digits) : "--";
+}
+
+export default function LiveView({ health }) {
+  const [windowMs, setWindowMs] = useState(60_000);
+  const [linkStatus, setLinkStatus] = useState("connecting");
+  const [latest, setLatest] = useState(null);
+
+  const bufferRef = useRef([]); // ascending {sys_ts, voltage, current, power}
+  const chartRef = useRef(null);
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const backoffRef = useRef(500);
+  const unmountedRef = useRef(false);
+
+  // Built once (empty series) - all subsequent updates go through the
+  // imperative chartRef.setOption path below, never re-triggering this.
+  const initialOption = useMemo(() => buildStackedOption([], { animate: false }), []);
+
+  useEffect(() => {
+    unmountedRef.current = false;
+
+    function connect() {
+      const ws = new WebSocket(buildWsUrl());
+      wsRef.current = ws;
+      ws.onopen = () => {
+        backoffRef.current = 500;
+        setLinkStatus("connected");
+      };
+      ws.onmessage = (evt) => {
+        try {
+          bufferRef.current.push(JSON.parse(evt.data));
+        } catch {
+          // ignore malformed frames
+        }
+      };
+      ws.onclose = () => {
+        if (unmountedRef.current) return;
+        setLinkStatus("reconnecting");
+        reconnectTimerRef.current = setTimeout(() => {
+          backoffRef.current = Math.min(backoffRef.current * 2, 10_000);
+          connect();
+        }, backoffRef.current);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    connect();
+    return () => {
+      unmountedRef.current = true;
+      clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+    };
+  }, []);
+
+  // Prune the buffer by elapsed wall-clock time (not sample count - the
+  // device's rate varies 10 Hz active / 0.1 Hz idle, so a fixed-count ring
+  // buffer would misrepresent density) and push a data-only patch to the
+  // chart on a fixed cadence, decoupled from the WS message rate.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cutoff = Date.now() - windowMs;
+      const buf = bufferRef.current;
+      let i = 0;
+      while (i < buf.length && buf[i].sys_ts < cutoff) i++;
+      if (i > 0) buf.splice(0, i);
+      if (buf.length === 0) return;
+
+      chartRef.current?.setOption(
+        { series: METRICS.map((m) => ({ data: buf.map((s) => [s.sys_ts, s[m.key]]) })) },
+        { notMerge: false, lazyUpdate: true },
+      );
+      setLatest(buf[buf.length - 1]);
+    }, RENDER_TICK_MS);
+    return () => clearInterval(id);
+  }, [windowMs]);
+
+  const deviceOn = health?.device === true;
+
+  return (
+    <div>
+      <div className="stat-row">
+        <StatTile
+          label="电压"
+          value={fmt(latest?.voltage, 3)}
+          unit="V"
+          dotColor={METRICS[0].color}
+        />
+        <StatTile
+          label="电流"
+          value={fmt(latest?.current, 2)}
+          unit="mA"
+          dotColor={METRICS[1].color}
+        />
+        <StatTile
+          label="功率"
+          value={fmt(latest?.power, 2)}
+          unit="mW"
+          dotColor={METRICS[2].color}
+        />
+        <StatTile
+          label="设备"
+          value={deviceOn ? "在线" : "离线"}
+          tone={deviceOn ? "good" : "warning"}
+        />
+        <StatTile
+          label="链路"
+          value={LINK_LABEL[linkStatus]}
+          tone={LINK_TONE[linkStatus]}
+          sublabel={health ? `查看人数 ${health.viewers}` : undefined}
+        />
+      </div>
+
+      <div className="chart-card">
+        <div className="chart-card__toolbar">
+          <label htmlFor="live-window" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            显示窗口
+          </label>
+          <select
+            id="live-window"
+            value={windowMs}
+            onChange={(e) => setWindowMs(Number(e.target.value))}
+          >
+            {WINDOW_OPTIONS.map((o) => (
+              <option key={o.ms} value={o.ms}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <EChart ref={chartRef} option={initialOption} height={480} />
+      </div>
+    </div>
+  );
+}

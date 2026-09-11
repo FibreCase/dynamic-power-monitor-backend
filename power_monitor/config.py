@@ -26,3 +26,12 @@ interval_slow_ms: int = _env_int("PM_INTERVAL_SLOW_MS", 10000)  # 0.1 Hz
 # Persistence tuning.
 db_batch_size: int = _env_int("PM_DB_BATCH_SIZE", 50)
 db_flush_interval: float = float(_env("PM_DB_FLUSH_INTERVAL", "2.0"))
+
+# Max rate at which samples are written to SQLite, regardless of the live
+# sampling rate (10 Hz active / 0.1 Hz idle) - the WS broadcast to viewers is
+# never throttled, only persistence. No smoothing across a rate change: this
+# is a simple "has enough time passed since the last stored row" gate.
+db_store_interval_ms: int = _env_int("PM_DB_STORE_INTERVAL_MS", 10000)
+
+# Web dashboard (built frontend assets, served statically by app.py).
+web_dist_dir: Path = Path(_env("PM_WEB_DIST", str(_BASE_DIR / "web" / "dist")))
