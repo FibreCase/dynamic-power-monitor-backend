@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { fetchHistory } from "../api";
-import { buildStackedOption, METRICS } from "../chartOption";
+import { buildStackedOption, METRIC_COLORS } from "../chartOption";
+import { getUnit, formatValue } from "../units";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
 
@@ -39,15 +40,26 @@ function aggregate(rows) {
   };
 }
 
-export default function HistoryView() {
+export default function HistoryView({ unitMode = "m" }) {
   const [form, setForm] = useState({ start: "", end: "", limit: DEFAULT_LIMIT });
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | loading | error
   const [error, setError] = useState(null);
 
+  const currentUnit = getUnit("current", unitMode);
+  const powerUnit = getUnit("power", unitMode);
+
   const ascRows = useMemo(() => rows.slice().reverse(), [rows]);
   const stats = useMemo(() => aggregate(rows), [rows]);
-  const chartOption = useMemo(() => buildStackedOption(ascRows, { animate: true }), [ascRows]);
+  const chartOption = useMemo(
+    () =>
+      buildStackedOption(ascRows, {
+        animate: true,
+        currentUnit: unitMode,
+        powerUnit: unitMode,
+      }),
+    [ascRows, unitMode],
+  );
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -108,21 +120,21 @@ export default function HistoryView() {
             value={stats.voltage.avg.toFixed(3)}
             unit="V"
             sublabel={`${stats.voltage.min.toFixed(3)} – ${stats.voltage.max.toFixed(3)}`}
-            dotColor={METRICS[0].color}
+            dotColor={METRIC_COLORS.voltage}
           />
           <StatTile
             label="电流均值"
-            value={stats.current.avg.toFixed(2)}
-            unit="mA"
-            sublabel={`${stats.current.min.toFixed(2)} – ${stats.current.max.toFixed(2)}`}
-            dotColor={METRICS[1].color}
+            value={formatValue(stats.current.avg, currentUnit)}
+            unit={currentUnit.label}
+            sublabel={`${formatValue(stats.current.min, currentUnit)} – ${formatValue(stats.current.max, currentUnit)}`}
+            dotColor={METRIC_COLORS.current}
           />
           <StatTile
             label="功率均值"
-            value={stats.power.avg.toFixed(2)}
-            unit="mW"
-            sublabel={`${stats.power.min.toFixed(2)} – ${stats.power.max.toFixed(2)}`}
-            dotColor={METRICS[2].color}
+            value={formatValue(stats.power.avg, powerUnit)}
+            unit={powerUnit.label}
+            sublabel={`${formatValue(stats.power.min, powerUnit)} – ${formatValue(stats.power.max, powerUnit)}`}
+            dotColor={METRIC_COLORS.power}
           />
         </div>
       )}
@@ -141,8 +153,8 @@ export default function HistoryView() {
                 <tr>
                   <th>时间</th>
                   <th>电压 (V)</th>
-                  <th>电流 (mA)</th>
-                  <th>功率 (mW)</th>
+                  <th>电流 ({currentUnit.label})</th>
+                  <th>功率 ({powerUnit.label})</th>
                 </tr>
               </thead>
               <tbody>
@@ -150,8 +162,8 @@ export default function HistoryView() {
                   <tr key={`${r.sys_ts}-${i}`}>
                     <td>{fmtTime(r.sys_ts)}</td>
                     <td>{r.voltage.toFixed(3)}</td>
-                    <td>{r.current.toFixed(2)}</td>
-                    <td>{r.power.toFixed(2)}</td>
+                    <td>{formatValue(r.current, currentUnit)}</td>
+                    <td>{formatValue(r.power, powerUnit)}</td>
                   </tr>
                 ))}
               </tbody>

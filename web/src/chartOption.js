@@ -12,6 +12,8 @@
 // module load. (There's no in-app theme toggle, so this doesn't need to be
 // reactive - a live OS theme flip won't re-theme an already-open chart
 // without a reload, an accepted v1 scope cut.)
+import { getUnit } from "./units";
+
 const isDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 
 const INK = {
@@ -21,30 +23,35 @@ const INK = {
   axisLine: isDark ? "#383835" : "#c3c2b7",
 };
 
-export const METRICS = [
-  {
-    key: "voltage",
-    label: "电压 (V)",
-    color: isDark ? "#3987e5" : "#2a78d6", // categorical slot 1
-  },
-  {
-    key: "current",
-    label: "电流 (mA)",
-    color: isDark ? "#d95926" : "#eb6834", // categorical slot 2
-  },
-  {
-    key: "power",
-    label: "功率 (mW)",
-    color: isDark ? "#199e70" : "#1baf7a", // categorical slot 3
-  },
-];
+export const METRIC_COLORS = {
+  voltage: isDark ? "#3987e5" : "#2a78d6", // categorical slot 1
+  current: isDark ? "#d95926" : "#eb6834", // categorical slot 2
+  power: isDark ? "#199e70" : "#1baf7a", // categorical slot 3
+};
+
+// Build the three metric descriptors with labels that reflect the active
+// display units (mA/mW vs A/W). Rebuilt whenever the unit toggle changes.
+export function buildMetrics({ currentUnit = "m", powerUnit = "m" }) {
+  const cu = getUnit("current", currentUnit);
+  const pu = getUnit("power", powerUnit);
+  return [
+    { key: "voltage", label: `电压 (V)`, color: METRIC_COLORS.voltage, factor: 1, digits: 3, unit: "V" },
+    { key: "current", label: `电流 (${cu.label})`, color: METRIC_COLORS.current, factor: cu.factor, digits: cu.digits, unit: cu.label },
+    { key: "power", label: `功率 (${pu.label})`, color: METRIC_COLORS.power, factor: pu.factor, digits: pu.digits, unit: pu.label },
+  ];
+}
 
 /**
  * Build a full ECharts option for the three-panel voltage/current/power
  * chart. `samples` is an array of {sys_ts, voltage, current, power},
- * expected in ascending time order.
+ * expected in ascending time order. `currentUnit` / `powerUnit` select the
+ * display units (raw values are mA / mW); defaults to mA / mW.
  */
-export function buildStackedOption(samples = [], { animate = false } = {}) {
+export function buildStackedOption(
+  samples = [],
+  { animate = false, currentUnit = "m", powerUnit = "m" } = {},
+) {
+  const METRICS = buildMetrics({ currentUnit, powerUnit });
   const n = METRICS.length;
   const gap = 8;
   const h = (100 - gap * (n - 1)) / n;
@@ -56,7 +63,6 @@ export function buildStackedOption(samples = [], { animate = false } = {}) {
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "cross" },
-      valueFormatter: (v) => (typeof v === "number" ? v.toFixed(3) : v),
     },
     grid: METRICS.map((_, i) => ({
       left: 56,
@@ -101,7 +107,13 @@ export function buildStackedOption(samples = [], { animate = false } = {}) {
       lineStyle: { width: 2, color: m.color },
       areaStyle: { color: m.color, opacity: 0.1 },
       itemStyle: { color: m.color },
-      data: samples.map((s) => [s.sys_ts, s[m.key]]),
+      // Per-series tooltip so each value carries its own unit's precision
+      // and suffix (e.g. "0.512 A" vs "512.00 mA").
+      tooltip: {
+        valueFormatter: (v) =>
+          typeof v === "number" ? `${v.toFixed(m.digits)} ${m.unit}` : v,
+      },
+      data: samples.map((s) => [s.sys_ts, s[m.key] * m.factor]),
     })),
   };
 }

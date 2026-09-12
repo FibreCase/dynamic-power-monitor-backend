@@ -113,6 +113,39 @@ body {
   background: var(--text-muted);
 }
 
+.unit-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.unit-toggle button {
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.unit-toggle button:last-child {
+  border-right: none;
+}
+
+.unit-toggle button:hover {
+  color: var(--text-primary);
+}
+
+.unit-toggle button.active {
+  background: var(--series-voltage);
+  color: #fff;
+  font-weight: 600;
+}
+
 .tab-nav {
   display: flex;
   gap: 4px;

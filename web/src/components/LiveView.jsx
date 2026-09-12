@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWsUrl } from "../api";
-import { buildStackedOption, METRICS } from "../chartOption";
+import { buildStackedOption, buildMetrics, METRIC_COLORS } from "../chartOption";
+import { getUnit, formatValue } from "../units";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
 
@@ -20,10 +21,13 @@ function fmt(n, digits) {
   return typeof n === "number" ? n.toFixed(digits) : "--";
 }
 
-export default function LiveView({ health }) {
+export default function LiveView({ health, unitMode = "m" }) {
   const [windowMs, setWindowMs] = useState(60_000);
   const [linkStatus, setLinkStatus] = useState("connecting");
   const [latest, setLatest] = useState(null);
+
+  const currentUnit = getUnit("current", unitMode);
+  const powerUnit = getUnit("power", unitMode);
 
   const bufferRef = useRef([]); // ascending {sys_ts, voltage, current, power}
   const chartRef = useRef(null);
@@ -32,9 +36,21 @@ export default function LiveView({ health }) {
   const backoffRef = useRef(500);
   const unmountedRef = useRef(false);
 
+  // Metric display-factors for the active units; the 200ms tick reads this
+  // ref so live samples are pushed already converted to the chosen unit.
+  const metricsRef = useRef(buildMetrics({ currentUnit: unitMode, powerUnit: unitMode }));
+
   // Built once (empty series) - all subsequent updates go through the
   // imperative chartRef.setOption path below, never re-triggering this.
-  const initialOption = useMemo(() => buildStackedOption([], { animate: false }), []);
+  const initialOption = useMemo(
+    () =>
+      buildStackedOption([], {
+        animate: false,
+        currentUnit: unitMode,
+        powerUnit: unitMode,
+      }),
+    [],
+  );
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -85,14 +101,40 @@ export default function LiveView({ health }) {
       if (i > 0) buf.splice(0, i);
       if (buf.length === 0) return;
 
+      const ms = metricsRef.current;
       chartRef.current?.setOption(
-        { series: METRICS.map((m) => ({ data: buf.map((s) => [s.sys_ts, s[m.key]]) })) },
+        {
+          series: ms.map((m) => ({
+            data: buf.map((s) => [s.sys_ts, s[m.key] * m.factor]),
+          })),
+        },
         { notMerge: false, lazyUpdate: true },
       );
       setLatest(buf[buf.length - 1]);
     }, RENDER_TICK_MS);
     return () => clearInterval(id);
-  }, [windowMs]);
+  }, [windowMs, unitMode]);
+
+  // When the unit toggle changes, push a fresh full option (new titles,
+  // tooltips, and converted series) so the whole chart re-themes in place
+  // without remounting the WebSocket. The first mount is skipped because
+  // `initialOption` already seeded the chart with the active units.
+  const firstUnitRenderRef = useRef(true);
+  useEffect(() => {
+    metricsRef.current = buildMetrics({ currentUnit: unitMode, powerUnit: unitMode });
+    if (firstUnitRenderRef.current) {
+      firstUnitRenderRef.current = false;
+      return;
+    }
+    chartRef.current?.setOption(
+      buildStackedOption(
+        bufferRef.current.map((s) => ({ ...s })),
+        { animate: false, currentUnit: unitMode, powerUnit: unitMode },
+      ),
+      { notMerge: true, lazyUpdate: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unitMode]);
 
   const deviceOn = health?.device === true;
 
@@ -103,19 +145,19 @@ export default function LiveView({ health }) {
           label="电压"
           value={fmt(latest?.voltage, 3)}
           unit="V"
-          dotColor={METRICS[0].color}
+          dotColor={METRIC_COLORS.voltage}
         />
         <StatTile
           label="电流"
-          value={fmt(latest?.current, 2)}
-          unit="mA"
-          dotColor={METRICS[1].color}
+          value={formatValue(latest?.current, currentUnit)}
+          unit={currentUnit.label}
+          dotColor={METRIC_COLORS.current}
         />
         <StatTile
           label="功率"
-          value={fmt(latest?.power, 2)}
-          unit="mW"
-          dotColor={METRICS[2].color}
+          value={formatValue(latest?.power, powerUnit)}
+          unit={powerUnit.label}
+          dotColor={METRIC_COLORS.power}
         />
         <StatTile
           label="设备"

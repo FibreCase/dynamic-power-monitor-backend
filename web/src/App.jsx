@@ -2,12 +2,33 @@ import { useEffect, useState } from "react";
 import { fetchHealth } from "./api";
 import LiveView from "./components/LiveView";
 import HistoryView from "./components/HistoryView";
+import UnitToggle from "./components/UnitToggle";
 
 const HEALTH_POLL_MS = 3000;
+const UNIT_MODE_KEY = "pm.unitMode";
+
+function loadUnitMode() {
+  try {
+    const v = localStorage.getItem(UNIT_MODE_KEY);
+    return v === "S" ? "S" : "m";
+  } catch {
+    return "m";
+  }
+}
 
 export default function App() {
   const [tab, setTab] = useState("live");
   const [health, setHealth] = useState(null);
+  const [unitMode, setUnitMode] = useState(loadUnitMode);
+
+  const setUnitModePersisted = (mode) => {
+    setUnitMode(mode);
+    try {
+      localStorage.setItem(UNIT_MODE_KEY, mode);
+    } catch {
+      // storage unavailable (private mode / blocked) - keep it in-memory only
+    }
+  };
 
   // Lifted here (not inside LiveView) so the device-status pill in the
   // header stays live regardless of the active tab, with exactly one
@@ -30,6 +51,7 @@ export default function App() {
     <>
       <header className="app-header">
         <h1>12V 供电监控面板</h1>
+        <UnitToggle mode={unitMode} onChange={setUnitModePersisted} />
         <span className={`status-pill status-pill--${deviceOn ? "good" : "warning"}`}>
           <span className="status-pill__dot" />
           设备{deviceOn ? "在线" : "离线"}
@@ -50,7 +72,11 @@ export default function App() {
             unmounts LiveView and closes its WebSocket - opening /ws is what
             bumps the ESP32 to 10 Hz, so a backgrounded Live tab shouldn't
             silently hold the device at the fast rate. */}
-        {tab === "live" ? <LiveView health={health} /> : <HistoryView />}
+        {tab === "live" ? (
+          <LiveView health={health} unitMode={unitMode} />
+        ) : (
+          <HistoryView unitMode={unitMode} />
+        )}
       </main>
     </>
   );
