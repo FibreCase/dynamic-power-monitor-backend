@@ -371,3 +371,108 @@ table.data-table {
   font-size: 13px;
   padding: 12px 2px;
 }
+
+/* -- OTA (firmware update) panel ------------------------------------------- */
+
+.ota-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.ota-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.ota-panel__title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ota-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ota-panel__mtime {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ota-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Hide the native file input; present its button as the visible control. */
+.ota-file {
+  display: inline-flex;
+}
+.ota-file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.ota-file__btn {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 7px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.ota-file input:focus-visible + .ota-file__btn {
+  outline: 2px solid var(--series-voltage);
+  outline-offset: 2px;
+}
+.ota-file input:not(:disabled) + .ota-file__btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.ota-update {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--series-power);
+  color: #fff;
+  cursor: pointer;
+}
+.ota-update:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ota-message {
+  font-size: 13px;
+}
+.ota-message--ok {
+  color: var(--status-good);
+}
+.ota-message--err {
+  color: var(--status-critical);
+}
+
+.ota-panel__hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}

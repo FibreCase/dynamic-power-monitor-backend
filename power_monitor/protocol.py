@@ -18,12 +18,15 @@ SAMPLE_CKSUM_OFFSET = SAMPLE_SIZE - 2                 # checksum is the last 2 b
 CKSUM_OFFSET = SAMPLE_CKSUM_OFFSET                     # alias
 
 # --- Downstream control: host -> ESP32, fixed 8 bytes (little-endian) ------
-# BB 66 | u8 cmd=0x01 | u8 len=0x02 | u16 interval_ms | u16 checksum
+# BB 66 | u8 cmd | u8 len | u16 payload | u16 checksum
 # checksum = sum of the first 6 bytes & 0xFFFF
+#   cmd=0x01  set sampling interval (payload = interval_ms)
+#   cmd=0x02  start OTA update      (payload unused, sent as 0)
 CONTROL_FORMAT = "<BBBBHH"
 CONTROL_SIZE = struct.calcsize(CONTROL_FORMAT)        # 8
 CONTROL_HEADER = b"\xbb\x66"
 CMD_SET_INTERVAL = 0x01
+CMD_START_OTA = 0x02
 PAYLOAD_LEN_INTERVAL = 0x02
 
 INTERVAL_FAST_MS = 100          # 10 Hz  (viewers present)
@@ -35,12 +38,24 @@ def checksum(data: bytes) -> int:
     return sum(data) & 0xFFFF
 
 
+def _build_control(cmd: int, payload: int) -> bytes:
+    """Pack an 8-byte control frame for the given cmd/payload (len byte=0x02)."""
+    body = struct.pack("<BBBBH", CONTROL_HEADER[0], CONTROL_HEADER[1], cmd, 0x02, payload)
+    return body + struct.pack("<H", checksum(body))
+
+
 def build_control_set_interval(interval_ms: int) -> bytes:
     """Pack the 8-byte 'set sampling interval' control frame."""
     # BB 66 | 01 | 02 | u16 interval_ms | u16 checksum (over the first 6 bytes)
-    body = struct.pack("<BBBBH", CONTROL_HEADER[0], CONTROL_HEADER[1],
-                       CMD_SET_INTERVAL, PAYLOAD_LEN_INTERVAL, interval_ms)
-    return body + struct.pack("<H", checksum(body))
+    return _build_control(CMD_SET_INTERVAL, interval_ms)
+
+
+def build_control_start_ota() -> bytes:
+    """Pack the 8-byte 'start OTA update' control frame (payload unused -> 0).
+
+    The firmware downloads the .bin itself over HTTP once it receives this.
+    """
+    return _build_control(CMD_START_OTA, 0)
 
 
 def parse_sample(data: bytes) -> tuple[int, float, float, float] | None:

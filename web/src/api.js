@@ -17,6 +17,19 @@ async function getJson(path) {
   return res.json();
 }
 
+async function postJson(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: body && body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+    body: body || undefined,
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(json?.detail ? JSON.stringify(json.detail) : `${path} -> ${res.status}`);
+  }
+  return json;
+}
+
 export function fetchHealth() {
   return getJson("/healthz");
 }
@@ -27,4 +40,21 @@ export function fetchHistory({ startTs, endTs, limit = 500 } = {}) {
   if (endTs != null) params.set("end_ts", endTs);
   params.set("limit", limit);
   return getJson(`/api/v1/history?${params}`);
+}
+
+// -- OTA (firmware update) ---------------------------------------------------
+export function fetchOtaStatus() {
+  return getJson("/ota/status");
+}
+
+// Upload a .bin. Sends it as multipart/form-data (field "file"); the browser
+// sets the multipart boundary, so we pass the FormData as the body verbatim.
+export function uploadFirmware(file) {
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  return postJson("/ota/upload", fd);
+}
+
+export function startOtaUpdate() {
+  return postJson("/ota/update");
 }

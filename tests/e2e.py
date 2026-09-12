@@ -9,6 +9,8 @@ Verifies, against the real IngestServer / Database / FastAPI app:
   4. GET /api/v1/history returns the persisted samples in descending order.
   5. A burst of samples faster than db_store_interval_ms only persists one
      row - the DB-store throttle - while every sample still gets broadcast.
+  6. OTA: uploading a .bin + POST /ota/update delivers the cmd=0x02 frame to
+     the connected device, and the image is served at /ota/firmware.bin.
 
 Run:  cd python && uv run python -m tests.e2e
 """
@@ -59,6 +61,26 @@ async def read_control(reader) -> int | None:
     return None
 
 
+async def read_control_cmd(reader) -> int | None:
+    """Read up to one complete 8-byte downstream control frame; return the cmd byte."""
+    buf = b""
+    for _ in range(40):
+        chunk = await asyncio.wait_for(reader.read(8 - len(buf)), timeout=2.0)
+        if not chunk:
+            return None
+        buf += chunk
+        if len(buf) < 8:
+            continue
+        if buf[0:2] != protocol.CONTROL_HEADER:
+            buf = buf[1:]
+            continue
+        if (sum(buf[:6]) & 0xFFFF) != struct.unpack("<H", buf[6:8])[0]:
+            buf = buf[1:]
+            continue
+        return buf[2]
+    return None
+
+
 async def run() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="pm_e2e_"))
     config.db_path = tmp / "power.db"
@@ -67,6 +89,7 @@ async def run() -> int:
     config.tcp_host = "127.0.0.1"
     config.tcp_port = INGEST_PORT
     config.db_store_interval_ms = 0       # unthrottled for the reassembly/history checks below
+    config.ota_dir = tmp / "ota"
 
     app = App()
     cfg = uvicorn.Config(app.app, host="127.0.0.1", port=WEB_PORT, log_level="warning")
@@ -158,6 +181,23 @@ async def run() -> int:
             burst_rows = [r for r in rows if r["dev_ts"] in burst_dev_ts]
             check("high-rate burst persists only 1 row (throttled)",
                   len(burst_rows) == 1, f"got {len(burst_rows)}")
+
+        # 8) OTA: upload a firmware image, then push the start command to the
+        #    (still-connected) device - it must receive the cmd=0x02 frame, and
+        #    the image must be servable at the path the firmware downloads from.
+        async with httpx.AsyncClient() as client:
+            up = (await client.post(
+                f"http://127.0.0.1:{WEB_PORT}/ota/upload",
+                files={"file": ("firmware.bin", b"\xde\xad\xbe\xef" * 64,
+                                "application/octet-stream")})).json()
+            check("ota upload stored", up.get("ok") is True and up.get("size") == 256, str(up))
+            cmd = await app.tcp.send_start_ota()
+            check("ota start frame delivered to device (cmd=0x02)",
+                  cmd is True and (await read_control_cmd(dev_reader)) == 0x02)
+            served = await client.get(f"http://127.0.0.1:{WEB_PORT}/ota/firmware.bin")
+            check("ota image served at /ota/firmware.bin",
+                  served.status_code == 200 and served.content == b"\xde\xad\xbe\xef" * 64,
+                  f"status={served.status_code}")
 
         dev_writer.close()
         await dev_writer.wait_closed()

@@ -35,3 +35,9 @@ db_store_interval_ms: int = _env_int("PM_DB_STORE_INTERVAL_MS", 10000)
 
 # Web dashboard (built frontend assets, served statically by app.py).
 web_dist_dir: Path = Path(_env("PM_WEB_DIST", str(_BASE_DIR / "web" / "dist")))
+
+# OTA firmware storage. An uploaded .bin is written here and served back to the
+# ESP32 for over-the-air updates (see app.py /ota/*). Keep it on a path the
+# ESP32 can reach over the LAN (default: <package parent>/ota/).
+ota_dir: Path = Path(_env("PM_OTA_DIR", str(_BASE_DIR / "ota")))
+ota_bin_name: str = _env("PM_OTA_BIN_NAME", "firmware.bin")

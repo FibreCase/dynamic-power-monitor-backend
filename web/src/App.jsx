@@ -3,6 +3,7 @@ import { fetchHealth } from "./api";
 import LiveView from "./components/LiveView";
 import HistoryView from "./components/HistoryView";
 import UnitToggle from "./components/UnitToggle";
+import OtaPanel from "./components/OtaPanel";
 
 const HEALTH_POLL_MS = 3000;
 const UNIT_MODE_KEY = "pm.unitMode";
@@ -68,6 +69,7 @@ export default function App() {
       </nav>
 
       <main className="view">
+        <OtaPanel deviceOnline={health?.device === true} />
         {/* Conditional (not both-mounted) so switching to History actually
             unmounts LiveView and closes its WebSocket - opening /ws is what
             bumps the ESP32 to 10 Hz, so a backgrounded Live tab shouldn't

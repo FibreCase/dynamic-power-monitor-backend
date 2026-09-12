@@ -100,14 +100,29 @@ class IngestServer:
                 self._reader, self._writer = None, None
             log.info("ESP32 disconnected")
 
-    async def send_set_interval(self, interval_ms: int) -> bool:
-        """Send an 8-byte control frame to the connected device. False if no link."""
+    async def send_control(self, frame: bytes) -> bool:
+        """Send a raw 8-byte control frame to the connected device.
+
+        False if there is no link. Callers pass a frame built in protocol
+        (e.g. build_control_set_interval / build_control_start_ota).
+        """
         if self._writer is None:
             return False
-        frame = protocol.build_control_set_interval(interval_ms)
         try:
             self._writer.write(frame)
             await self._writer.drain()
             return True
         except (OSError, ConnectionResetError):
             return False
+
+    async def send_set_interval(self, interval_ms: int) -> bool:
+        """Send an 8-byte 'set sampling interval' control frame. False if no link."""
+        return await self.send_control(protocol.build_control_set_interval(interval_ms))
+
+    async def send_start_ota(self) -> bool:
+        """Send the 8-byte 'start OTA update' control frame. False if no link.
+
+        Triggers the firmware to download the .bin over HTTP (see app.py's
+        /ota routes) and reboot into it.
+        """
+        return await self.send_control(protocol.build_control_start_ota())

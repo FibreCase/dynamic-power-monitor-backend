@@ -19,9 +19,11 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, Optional
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 from . import config
@@ -29,6 +31,10 @@ from .db import Database
 from .tcp import IngestServer
 
 log = logging.getLogger("power_monitor.app")
+
+# A firmware image is at most the size of one OTA partition (~1.65 MB on the
+# C3's two-slot table); reject uploads far above it outright.
+_OTA_MAX_BYTES = 3 * 1024 * 1024
 
 
 class App:
@@ -40,6 +46,9 @@ class App:
         self._viewers: set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._last_db_ts: Optional[int] = None
+        # OTA: the uploaded firmware image, stored as (size, mtime) so the
+        # status endpoint can report it without a disk stat on every poll.
+        self._ota: Optional[tuple[int, float]] = None
 
         @asynccontextmanager
         async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -57,6 +66,14 @@ class App:
         self.app.websocket("/ws")(self._ws)
         self.app.get("/api/v1/history")(self._history)
         self.app.get("/healthz")(self._healthz)
+
+        # OTA firmware: upload (.bin) -> stored on disk -> served to the ESP32
+        # over HTTP for over-the-air update. Registered before the "/" static
+        # mount so they take precedence.
+        self.app.get("/ota/firmware.bin")(self._ota_serve)
+        self.app.post("/ota/upload")(self._ota_upload)
+        self.app.get("/ota/status")(self._ota_status)
+        self.app.post("/ota/update")(self._ota_update)
 
         # Built dashboard assets (python/web/), served same-origin. Mounted
         # last so it can never shadow the routes above. Skipped (not a
@@ -139,6 +156,65 @@ class App:
 
     async def _healthz(self):
         return {"status": "ok", "device": self.tcp.connected, "viewers": len(self._viewers)}
+
+    # -- OTA (firmware) -------------------------------------------------------
+    def _ota_bin_path(self) -> Path:
+        return config.ota_dir / config.ota_bin_name
+
+    async def _ota_serve(self):
+        """Serve the uploaded image to the ESP32 (the OTA download target).
+
+        This is the `http://<this host>:8000/ota/firmware.bin` the firmware
+        GETs after it receives the start-OTA control frame.
+        """
+        path = self._ota_bin_path()
+        if not path.is_file():
+            raise HTTPException(404, "no firmware uploaded yet (POST /ota/upload)")
+        return FileResponse(path, media_type="application/octet-stream",
+                            filename=config.ota_bin_name)
+
+    async def _ota_upload(self, file: UploadFile):
+        """Store an uploaded .bin as the pending firmware image (overwrites)."""
+        data = await file.read()
+        if len(data) == 0:
+            raise HTTPException(400, "empty upload")
+        if len(data) > _OTA_MAX_BYTES:
+            raise HTTPException(413, f"firmware too large (> {_OTA_MAX_BYTES} bytes)")
+        config.ota_dir.mkdir(parents=True, exist_ok=True)
+        path = self._ota_bin_path()
+        path.write_bytes(data)
+        self._ota = (path.stat().st_size, path.stat().st_mtime)
+        log.info("OTA: stored %s (%d bytes)", path, self._ota[0])
+        return {"ok": True, "size": self._ota[0], "path": str(path)}
+
+    async def _ota_status(self):
+        """Whether a firmware image is available + device connectivity."""
+        path = self._ota_bin_path()
+        st = path.stat() if path.is_file() else None
+        available = st is not None
+        # Prefer the in-memory record (set on upload); fall back to the file.
+        size = self._ota[0] if (available and self._ota) else (st.st_size if st else None)
+        mtime = self._ota[1] if (available and self._ota) else (st.st_mtime if st else None)
+        return {
+            "available": available,
+            "size": size,
+            "mtime": int(mtime) if mtime else None,
+            "device_online": self.tcp.connected,
+        }
+
+    async def _ota_update(self):
+        """Push the start-OTA command to the connected device.
+
+        The firmware then downloads /ota/firmware.bin and reboots into it.
+        """
+        if not self._ota_bin_path().is_file():
+            raise HTTPException(409, "no firmware uploaded yet (POST /ota/upload)")
+        if not self.tcp.connected:
+            raise HTTPException(409, "device is offline - cannot start OTA")
+        if not await self.tcp.send_start_ota():
+            raise HTTPException(502, "failed to send OTA command to device")
+        log.info("OTA: start command sent to device")
+        return {"ok": True, "message": "device will reboot into the new firmware"}
 
 
 _app = App()
