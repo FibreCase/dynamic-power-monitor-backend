@@ -84,7 +84,7 @@ export default function App() {
         </button>
       </nav>
 
-      <main className="view">
+      <main className="view" key={tab}>
         {/* Only one view is mounted at a time: switching away from Live unmounts
             it and closes its WebSocket - opening /ws is what bumps the ESP32 to
             10 Hz, so a backgrounded Live tab shouldn't hold the device at the

@@ -18,6 +18,9 @@
   --status-good: #0ca30c;
   --status-warning: #fab219;
   --status-critical: #d03b3b;
+
+  --row-hover: rgba(11, 11, 11, 0.035);
+  --focus-ring: rgba(42, 120, 214, 0.28);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +41,9 @@
     --status-good: #0ca30c;
     --status-warning: #fab219;
     --status-critical: #d03b3b;
+
+    --row-hover: rgba(255, 255, 255, 0.045);
+    --focus-ring: rgba(57, 135, 229, 0.35);
   }
 }
 
@@ -476,4 +482,258 @@ table.data-table {
   margin: 12px 0 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+/* -- Motion ------------------------------------------------------------
+   A restrained motion layer: view + panel entrances, liveness cues, and
+   micro-interactions. ECharts is deliberately left untouched - the live chart
+   pushes partial data every 200ms and animating it would fight the stream.
+
+   Two invariants for correctness:
+   - `animation-fill-mode: backwards` (never `both`): an ending transform on
+     the `.view` would break `position:sticky` in the data-table headers, so
+     every keyframe returns to its natural resting state.
+   - Direct children of `.view` (each page has at most a handful) get a
+     `--i` cascade that staggers their rise-in against `--rise-stagger`. */
+
+@keyframes view-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes ping-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes soft-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.view {
+  animation: view-fade 0.22s ease-out;
+  /* per-level cascade for the child rise-in (children multiply this by their --i). */
+  --rise-stagger: 55ms;
+}
+/* Each view wraps its content in a single root <div>, so its *inner* blocks
+   (stat-row / chart-card / form / table / ota-panel) are the things we stagger.
+   They're the offset's direct children -> each computes --i from its position. */
+.view > div > * {
+  animation: rise-in 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  animation-delay: calc(var(--rise-stagger) * var(--i, 0));
+}
+.view > div > *:nth-child(1) {
+  --i: 0;
+}
+.view > div > *:nth-child(2) {
+  --i: 1;
+}
+.view > div > *:nth-child(3) {
+  --i: 2;
+}
+.view > div > *:nth-child(4) {
+  --i: 3;
+}
+.view > div > *:nth-child(n + 5) {
+  --i: 4;
+}
+
+.stat-tile,
+.chart-card,
+.ota-panel,
+.query-form,
+.table-scroll {
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
+}
+
+@media (hover: hover) {
+  .stat-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.5);
+  }
+  .chart-card:hover,
+  .ota-panel:hover,
+  .query-form:hover {
+    border-color: var(--text-muted);
+  }
+}
+
+.data-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+.data-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+/* Liveness cues -------------------------------------------------------- */
+
+.status-pill__dot {
+  position: relative;
+}
+
+/* Online (good): a soft, slow sonar ring. */
+.status-pill--good .status-pill__dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--status-good);
+  animation: ping-ring 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Offline (warning) / unknown (default): the solid dot blinks to read as
+   "attention" rather than a steady dead state. */
+.status-pill--warning .status-pill__dot {
+  animation: soft-blink 1.15s ease-in-out infinite;
+}
+.status-pill--default .status-pill__dot {
+  animation: soft-blink 2.2s ease-in-out infinite;
+}
+
+/* Live chart "实时" badge: a pulsing dot that reads as "streaming now". */
+.chart-card__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--status-good);
+  margin-right: auto;
+}
+.chart-card__live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-good);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* Micro-interactions --------------------------------------------------- */
+
+button {
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.08s ease;
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.tab-nav button {
+  position: relative;
+}
+.tab-nav button:hover:not(.active) {
+  background: var(--row-hover);
+}
+.tab-nav button.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--series-voltage);
+  animation: fade-in 0.3s ease;
+}
+
+.query-form button:not(:disabled),
+.ota-update:not(:disabled) {
+  transition:
+    background-color 0.15s ease,
+    transform 0.08s ease,
+    box-shadow 0.15s ease;
+}
+@media (hover: hover) {
+  .query-form button:not(:disabled):hover {
+    box-shadow: 0 6px 16px -8px var(--focus-ring);
+  }
+  .ota-update:not(:disabled):hover {
+    filter: brightness(1.06);
+  }
+}
+
+.query-form input,
+.chart-card__toolbar select {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.query-form input:focus,
+.chart-card__toolbar select:focus {
+  outline: none;
+  border-color: var(--series-voltage);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.table-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: content-box;
+}
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Respect the OS "reduce motion" setting - keep opacity fades, drop movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

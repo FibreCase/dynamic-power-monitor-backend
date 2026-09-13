@@ -181,6 +181,10 @@ export default function LiveView({ health, unitMode = "m" }) {
 
       <div className="chart-card">
         <div className="chart-card__toolbar">
+          <span className="chart-card__live">
+            <span className="chart-card__live-dot" />
+            实时
+          </span>
           <label htmlFor="live-window" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
             显示窗口
           </label>
