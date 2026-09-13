@@ -173,12 +173,10 @@ export default function LiveView({ health, unitMode = "m" }) {
         ? { label: "在线", tone: "good" }
         : { label: "离线", tone: "warning" };
 
-  // "最小 X · 最大 X · 均值 X" for a metric's window summary (already unit-converted);
+  // "min - max | avg" for a metric's window summary (already unit-converted);
   // the unit itself stays on the main value, so these are bare numbers.
   const rangeText = (s, digits) =>
-    s
-      ? `最小 ${s.min.toFixed(digits)} · 最大 ${s.max.toFixed(digits)} · 均值 ${s.avg.toFixed(digits)}`
-      : undefined;
+    s ? `${s.min.toFixed(digits)} - ${s.max.toFixed(digits)} | ${s.avg.toFixed(digits)}` : undefined;
 
   return (
     <div>
