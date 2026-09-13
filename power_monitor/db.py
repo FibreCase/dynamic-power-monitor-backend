@@ -32,6 +32,26 @@ INSERT_SQL = (
     "VALUES (?, ?, ?, ?, ?)"
 )
 
+# Discrete overcurrent (OCP) events from either detection path. `source` is
+# 'device' (the INA226 ALERT pin) or 'host' (the backend threshold); `type`
+# mirrors the wire event type (0x01 = shunt overcurrent).
+CREATE_EVENTS_TABLE = (
+    "CREATE TABLE IF NOT EXISTS ocp_events ("
+    " id      INTEGER PRIMARY KEY AUTOINCREMENT,"
+    " sys_ts  INTEGER NOT NULL,"
+    " dev_ts  INTEGER NOT NULL,"
+    " source  TEXT    NOT NULL,"
+    " type    INTEGER NOT NULL,"
+    " voltage REAL    NOT NULL,"
+    " current REAL    NOT NULL,"
+    " power   REAL    NOT NULL)"
+)
+CREATE_EVENTS_INDEX = "CREATE INDEX IF NOT EXISTS idx_ocp_events_sys_ts ON ocp_events (sys_ts)"
+INSERT_EVENT_SQL = (
+    "INSERT INTO ocp_events (sys_ts, dev_ts, source, type, voltage, current, power) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?)"
+)
+
 
 class Database:
     def __init__(self, db_path: Path, batch_size: int = 50, flush_interval: float = 2.0):
@@ -55,6 +75,8 @@ class Database:
             self._conn.execute("PRAGMA synchronous=NORMAL;")
             self._conn.execute(CREATE_TABLE)
             self._conn.execute(CREATE_INDEX)
+            self._conn.execute(CREATE_EVENTS_TABLE)
+            self._conn.execute(CREATE_EVENTS_INDEX)
             self._conn.commit()
         log.info("sqlite ready at %s (WAL, sync=NORMAL)", self._db_path)
 
@@ -124,6 +146,53 @@ class Database:
         rows = await asyncio.to_thread(_do)
         return [
             {"sys_ts": r[0], "dev_ts": r[1], "voltage": r[2], "current": r[3], "power": r[4]}
+            for r in rows
+        ]
+
+    async def put_event(
+        self, sys_ts: int, dev_ts: int, source: str, etype: int,
+        voltage: float, current: float, power: float,
+    ) -> None:
+        """Record one OCP event. Events are low-frequency, so this is a single
+        synchronous insert (no queue / batching) - a direct to_thread call."""
+        def _do() -> None:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    INSERT_EVENT_SQL,
+                    (sys_ts, dev_ts, source, etype, voltage, current, power),
+                )
+                self._conn.commit()
+        await asyncio.to_thread(_do)
+
+    async def query_events(
+        self,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        limit: int = 200,
+    ) -> list[dict]:
+        limit = max(1, min(int(limit), 1000))
+
+        def _do() -> list[tuple]:
+            sql = "SELECT sys_ts, dev_ts, source, type, voltage, current, power FROM ocp_events"
+            clauses: list[str] = []
+            params: list = []
+            if start_ts is not None:
+                clauses.append("sys_ts >= ?"); params.append(int(start_ts))
+            if end_ts is not None:
+                clauses.append("sys_ts <= ?"); params.append(int(end_ts))
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY sys_ts DESC, id DESC LIMIT ?"
+            params.append(limit)
+            with self._lock:
+                assert self._conn is not None
+                return self._conn.execute(sql, params).fetchall()
+
+        rows = await asyncio.to_thread(_do)
+        return [
+            {"sys_ts": r[0], "dev_ts": r[1], "source": r[2], "type": r[3],
+             "voltage": r[4], "current": r[5], "power": r[6]}
             for r in rows
         ]
 

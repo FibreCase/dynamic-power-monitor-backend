@@ -33,6 +33,14 @@ device_liveness_s: float = float(_env("PM_DEVICE_LIVENESS_S", "30"))
 db_batch_size: int = _env_int("PM_DB_BATCH_SIZE", 50)
 db_flush_interval: float = float(_env("PM_DB_FLUSH_INTERVAL", "2.0"))
 
+# Overcurrent (OCP) detection on the host side (the backend-threshold path; the
+# firmware's INA226 ALERT is the second, independent path). A sample whose
+# current (mA) exceeds `ocp_threshold_ma` records one event on the rising edge;
+# it re-arms only after the current drops back below the threshold OR
+# `ocp_rearm_ms` have elapsed (guards against hysteresis chatter near the edge).
+ocp_threshold_ma: float = float(_env("PM_OCP_THRESHOLD_MA", "2500"))   # 2.5 A
+ocp_rearm_ms: int = _env_int("PM_OCP_REARM_MS", "5000")
+
 # Max rate at which samples are written to SQLite, regardless of the live
 # sampling rate (10 Hz active / 0.1 Hz idle) - the WS broadcast to viewers is
 # never throttled, only persistence. No smoothing across a rate change: this

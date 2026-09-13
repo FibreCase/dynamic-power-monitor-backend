@@ -27,6 +27,7 @@ from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 from . import config
+from . import protocol
 from .db import Database
 from .tcp import IngestServer
 
@@ -43,10 +44,17 @@ class App:
                            batch_size=config.db_batch_size,
                            flush_interval=config.db_flush_interval)
         self.tcp = IngestServer(config.tcp_host, config.tcp_port,
-                                self._on_sample, self._on_device_info)
+                                self._on_sample, self._on_device_info, self._on_event)
         self._viewers: set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._last_db_ts: Optional[int] = None
+        # OCP host-threshold edge state: `self._host_over` is "current is
+        # presently over the threshold" (so a sustained overcurrent records only
+        # once, on the rising edge); `self._last_host_ocr` is the wall-clock ms of
+        # the last host OCP event, gating re-records after a brief dip back over
+        # (chatter guard - see _on_sample).
+        self._host_over = False
+        self._last_host_ocr: Optional[int] = None
         # Device-reported info (running firmware version + active OTA slot),
         # sent by the ESP32 once per connection. None until first seen.
         self._device_info: Optional[dict] = None
@@ -69,6 +77,7 @@ class App:
         self.app = FastAPI(title="dynamic-power-monitor-backend", lifespan=lifespan)
         self.app.websocket("/ws")(self._ws)
         self.app.get("/api/v1/history")(self._history)
+        self.app.get("/api/v1/alerts")(self._alerts)
         self.app.get("/healthz")(self._healthz)
 
         # OTA firmware: upload (.bin) -> stored on disk -> served to the ESP32
@@ -101,6 +110,23 @@ class App:
         if self._last_db_ts is None or sys_ts - self._last_db_ts >= config.db_store_interval_ms:
             await self.db.put((sys_ts, dev_ts, voltage, current, power_mw))
             self._last_db_ts = sys_ts
+        # Backend OCP threshold (one of the two detection paths; the INA226
+        # ALERT pin is the other). Edge-triggered: a sustained overcurrent
+        # records once on the rising edge; it re-arms when current drops back
+        # below the threshold, and ocp_rearm_ms guards against chatter that
+        # straddles the edge.
+        if current > config.ocp_threshold_ma:
+            if not self._host_over:
+                self._host_over = True
+                if self._last_host_ocr is None or sys_ts - self._last_host_ocr >= config.ocp_rearm_ms:
+                    await self.db.put_event(sys_ts, dev_ts, "host",
+                                            protocol.EVENT_TYPE_SHUNT_OCP,
+                                            voltage, current, power_mw)
+                    self._last_host_ocr = sys_ts
+                    log.warning("OCP (host): %.0f mA > %.0f mA threshold -> event",
+                                current, config.ocp_threshold_ma)
+        else:
+            self._host_over = False
         payload = {
             "sys_ts": sys_ts,
             "dev_ts": dev_ts,
@@ -125,6 +151,18 @@ class App:
         if self._device_info != info:
             log.info("device info: v%s on slot=%d", version, slot)
             self._device_info = info
+
+    async def _on_event(self, etype: int, dev_ts: int, voltage: float, current: float, power_mw: float) -> None:
+        """Persist an overcurrent event pushed by the device (INA226 ALERT pin).
+
+        This is the hardware detection path; the host-threshold path records in
+        _on_sample. Both land in ocp_events, distinguished by `source`.
+        """
+        sys_ts = int(time.time() * 1000)
+        await self.db.put_event(sys_ts, dev_ts, "device", etype,
+                                voltage, current, power_mw)
+        log.warning("OCP (device ALERT): I=%.0f mA V=%.3f P=%.1f mW -> event",
+                    current, voltage, power_mw)
 
     async def _set_viewers(self, count: int) -> None:
         if count > 0:
@@ -164,6 +202,15 @@ class App:
         limit: int = Query(500, ge=1, le=5000),
     ):
         return await self.db.query_history(start_ts=start_ts, end_ts=end_ts, limit=limit)
+
+    async def _alerts(
+        self,
+        start_ts: Optional[int] = Query(None, ge=0),
+        end_ts: Optional[int] = Query(None, ge=0),
+        limit: int = Query(200, ge=1, le=1000),
+    ):
+        """Overcurrent (OCP) events from either detection path, time-descending."""
+        return await self.db.query_events(start_ts=start_ts, end_ts=end_ts, limit=limit)
 
     async def _healthz(self):
         return {"status": "ok", "device": self.tcp.online, "viewers": len(self._viewers)}

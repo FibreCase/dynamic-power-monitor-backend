@@ -3,6 +3,7 @@ import { fetchHealth } from "./api";
 import LiveView from "./components/LiveView";
 import HistoryView from "./components/HistoryView";
 import OtaView from "./components/OtaView";
+import AlertView from "./components/AlertView";
 import UnitToggle from "./components/UnitToggle";
 
 const HEALTH_POLL_MS = 3000;
@@ -75,6 +76,9 @@ export default function App() {
         <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
           历史查询
         </button>
+        <button className={tab === "alerts" ? "active" : ""} onClick={() => setTab("alerts")}>
+          异常日志
+        </button>
         <button className={tab === "ota" ? "active" : ""} onClick={() => setTab("ota")}>
           固件更新
         </button>
@@ -84,13 +88,16 @@ export default function App() {
         {/* Only one view is mounted at a time: switching away from Live unmounts
             it and closes its WebSocket - opening /ws is what bumps the ESP32 to
             10 Hz, so a backgrounded Live tab shouldn't hold the device at the
-            fast rate. OtaView likewise starts/stops its poll on mount/unmount. */}
+            fast rate. OtaView / AlertView likewise start/stop their poll on
+            mount/unmount. */}
         {tab === "live" ? (
           <LiveView health={health} unitMode={unitMode} />
-        ) : tab === "ota" ? (
-          <OtaView deviceOnline={deviceOn} />
-        ) : (
+        ) : tab === "history" ? (
           <HistoryView unitMode={unitMode} />
+        ) : tab === "alerts" ? (
+          <AlertView unitMode={unitMode} />
+        ) : (
+          <OtaView deviceOnline={deviceOn} />
         )}
       </main>
     </>

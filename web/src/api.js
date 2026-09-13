@@ -42,6 +42,16 @@ export function fetchHistory({ startTs, endTs, limit = 500 } = {}) {
   return getJson(`/api/v1/history?${params}`);
 }
 
+// Overcurrent (OCP) events from either detection path (device ALERT / host
+// threshold), time-descending. sys_ts is milliseconds (like history).
+export function fetchAlerts({ startTs, endTs, limit = 200 } = {}) {
+  const params = new URLSearchParams();
+  if (startTs != null) params.set("start_ts", startTs);
+  if (endTs != null) params.set("end_ts", endTs);
+  params.set("limit", limit);
+  return getJson(`/api/v1/alerts?${params}`);
+}
+
 // -- OTA (firmware update) ---------------------------------------------------
 export function fetchOtaStatus() {
   return getJson("/ota/status");

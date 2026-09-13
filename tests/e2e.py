@@ -11,6 +11,10 @@ Verifies, against the real IngestServer / Database / FastAPI app:
      row - the DB-store throttle - while every sample still gets broadcast.
   6. OTA: uploading a .bin + POST /ota/update delivers the cmd=0x02 frame to
      the connected device, and the image is served at /ota/firmware.bin.
+  7. OCP events: the device path (a pushed ALERT event) and the host
+     threshold path (an over-threshold sample) each record a row in
+     /api/v1/alerts, and the host path is edge-triggered (a sustained
+     overcurrent records only once).
 
 Run:  cd python && uv run python -m tests.e2e
 """
@@ -43,6 +47,11 @@ def make_sample(dev_ts: int, voltage: float, current_ma: float) -> bytes:
 def make_device_info(version: str, slot: int) -> bytes:
     """Build a valid 37-byte device-info frame (mirrors the firmware)."""
     return protocol.build_device_info(version, slot)
+
+
+def make_event(etype: int, dev_ts: int, voltage: float, current_ma: float, power_mw: float) -> bytes:
+    """Build a valid 25-byte OCP event frame (mirrors the firmware)."""
+    return protocol.build_event(etype, dev_ts, voltage, current_ma, power_mw)
 
 
 async def read_control(reader) -> int | None:
@@ -216,6 +225,47 @@ async def run() -> int:
             check("ota image served at /ota/firmware.bin",
                   served.status_code == 200 and served.content == b"\xde\xad\xbe\xef" * 64,
                   f"status={served.status_code}")
+
+        # 9) OCP events: (a) the device path - the device pushes an ALERT event
+        #    frame and it must appear with source='device'; (b) the host path -
+        #    an over-threshold sample records source='host' once on the rising
+        #    edge, and a second over-threshold sample does NOT add another row.
+        await asyncio.sleep(0.1)
+        dev_writer.write(make_event(protocol.EVENT_TYPE_SHUNT_OCP, 9000, 12.1, 2600.0, 31460.0))
+        await dev_writer.drain()
+        await asyncio.sleep(0.4)  # let the device event insert commit
+
+        # Host path: drop below threshold first (clears any edge state), then
+        # push two over-threshold samples ~0.6s apart (within ocp_rearm_ms).
+        dev_writer.write(make_sample(9100, 12.0, 500.0))   # under -> disarm
+        await dev_writer.drain()
+        await asyncio.sleep(0.1)
+        dev_writer.write(make_sample(9200, 12.1, 2600.0))  # rising edge -> record
+        await dev_writer.drain()
+        await asyncio.sleep(0.1)
+        dev_writer.write(make_sample(9201, 12.1, 2700.0))  # sustained -> no new row
+        await dev_writer.drain()
+        await asyncio.sleep(0.4)  # let host inserts commit
+
+        async with httpx.AsyncClient() as client:
+            alerts = (await client.get(f"http://127.0.0.1:{WEB_PORT}/api/v1/alerts",
+                                       params={"limit": 100})).json()
+            device_rows = [a for a in alerts if a["source"] == "device"]
+            host_rows = [a for a in alerts if a["source"] == "host"]
+            check("device OCP event recorded (source='device')",
+                  any(a["dev_ts"] == 9000 and a["type"] == protocol.EVENT_TYPE_SHUNT_OCP
+                      for a in device_rows), str(alerts))
+            check("device OCP event carries the edge reading",
+                  any(a["dev_ts"] == 9000 and abs(a["current"] - 2600.0) < 1.0
+                      for a in device_rows), str(device_rows))
+            check("host over-threshold sample recorded (source='host')",
+                  any(a["dev_ts"] == 9200 for a in host_rows), str(host_rows))
+            check("sustained over-threshold records only once (edge-triggered)",
+                  len(host_rows) == 1, f"got {len(host_rows)}: {host_rows}")
+            # Alerts arrive newest-first.
+            if len(alerts) >= 2:
+                check("/api/v1/alerts sorted descending by sys_ts",
+                      alerts[0]["sys_ts"] >= alerts[1]["sys_ts"])
 
         dev_writer.close()
         await dev_writer.wait_closed()

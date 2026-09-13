@@ -35,6 +35,17 @@ OTA_SLOT_UNKNOWN = 0
 OTA_SLOT_0 = 1
 OTA_SLOT_1 = 2
 
+# --- Upstream OCP event: ESP32 -> host, fixed 25 bytes (little-endian) ------
+# Sent by the device when its INA226 ALERT pin asserts (shunt overcurrent).
+# Carries a fresh voltage/current/power read taken at the edge.
+#   AA 54 | u8 type | u64 timestamp_ms | f32 voltage(V) | f32 current(mA)
+#         | f32 power(mW) | u16 checksum (over the first 23 bytes)
+EVENT_FORMAT = "<2sBQfffH"
+EVENT_SIZE = struct.calcsize(EVENT_FORMAT)            # 25
+EVENT_HEADER = b"\xaa\x54"
+EVENT_CKSUM_OFFSET = EVENT_SIZE - 2                   # 23
+EVENT_TYPE_SHUNT_OCP = 0x01
+
 # --- Downstream control: host -> ESP32, fixed 8 bytes (little-endian) ------
 # BB 66 | u8 cmd | u8 len | u16 payload | u16 checksum
 # checksum = sum of the first 6 bytes & 0xFFFF
@@ -121,4 +132,29 @@ def build_device_info(version: str, slot: int) -> bytes:
     """
     version_bytes = version.encode("ascii", "replace")[:31].ljust(32, b"\x00")  # 32 B, NUL-padded
     body = struct.pack("<2s32sB", INFO_HEADER, version_bytes, slot)  # 35 bytes, no cksum
+    return body + struct.pack("<H", checksum(body))
+
+
+def parse_event(data: bytes) -> tuple[int, int, float, float, float] | None:
+    """Decode one 25-byte OCP event frame.
+
+    Returns (type, dev_ts, voltage, current, power_mw) or None if the frame
+    header or checksum is invalid. `data` must be exactly EVENT_SIZE bytes.
+    """
+    if len(data) != EVENT_SIZE:
+        return None
+    if data[0:2] != EVENT_HEADER:
+        return None
+    if checksum(data[:EVENT_CKSUM_OFFSET]) != struct.unpack("<H", data[EVENT_CKSUM_OFFSET:])[0]:
+        return None
+    _hdr, etype, dev_ts, voltage, current, power, _ck = struct.unpack(EVENT_FORMAT, data)
+    return etype, dev_ts, voltage, current, power
+
+
+def build_event(etype: int, dev_ts: int, voltage: float, current: float, power: float) -> bytes:
+    """Pack a 25-byte OCP event frame (the wire contract the firmware emits).
+
+    Useful for tests and any tooling that must speak the wire protocol.
+    """
+    body = struct.pack("<2sBQfff", EVENT_HEADER, etype, dev_ts, voltage, current, power)
     return body + struct.pack("<H", checksum(body))

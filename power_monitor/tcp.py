@@ -21,11 +21,12 @@ log = logging.getLogger("power_monitor.tcp")
 
 
 class IngestServer:
-    def __init__(self, host: str, port: int, on_sample, on_device_info=None):
+    def __init__(self, host: str, port: int, on_sample, on_device_info=None, on_event=None):
         self._host = host
         self._port = port
         self._on_sample = on_sample              # async (dev_ts, v, i, p) -> None
         self._on_device_info = on_device_info    # async (version, slot) -> None (optional)
+        self._on_event = on_event                # async (type, dev_ts, v, i, p) -> None (optional)
         self._server: asyncio.Server | None = None
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
@@ -108,15 +109,18 @@ class IngestServer:
                 if not data:
                     break
                 buf += data
-                # Consume every complete frame (sample OR device-info) in the
-                # buffer. The header byte pair selects the frame type and its
-                # size; a bad header or checksum drops one byte and rescans so we
-                # resync through any garbage without losing the stream.
+                # Consume every complete frame (sample / device-info / OCP event)
+                # in the buffer. The header byte pair selects the frame type and
+                # its size; a bad header or checksum drops one byte and rescans so
+                # we resync through any garbage without losing the stream.
                 while len(buf) >= 2:
-                    if buf[0:2] == protocol.SAMPLE_HEADER:
+                    hdr = buf[0:2]
+                    if hdr == protocol.SAMPLE_HEADER:
                         size = protocol.SAMPLE_SIZE
-                    elif buf[0:2] == protocol.INFO_HEADER:
+                    elif hdr == protocol.INFO_HEADER:
                         size = protocol.INFO_SIZE
+                    elif hdr == protocol.EVENT_HEADER:
+                        size = protocol.EVENT_SIZE
                     else:
                         # Lost sync: drop one byte and rescan.
                         buf = buf[1:]
@@ -124,25 +128,33 @@ class IngestServer:
                     if len(buf) < size:
                         break  # partial frame: wait for more bytes
                     frame = buf[:size]
-                    if buf[0:2] == protocol.SAMPLE_HEADER:
+                    self._last_rx = time.monotonic()
+                    if hdr == protocol.SAMPLE_HEADER:
                         parsed = protocol.parse_sample(frame)
                         if parsed is None:
                             buf = buf[1:]
                             continue
                         buf = buf[size:]
-                        self._last_rx = time.monotonic()
                         dev_ts, voltage, current, power = parsed
                         await self._on_sample(dev_ts, voltage, current, power)
-                    else:
+                    elif hdr == protocol.INFO_HEADER:
                         parsed = protocol.parse_device_info(frame)
                         if parsed is None:
                             buf = buf[1:]
                             continue
                         buf = buf[size:]
-                        self._last_rx = time.monotonic()
                         if self._on_device_info is not None:
                             version, slot = parsed
                             await self._on_device_info(version, slot)
+                    else:  # EVENT_HEADER
+                        parsed = protocol.parse_event(frame)
+                        if parsed is None:
+                            buf = buf[1:]
+                            continue
+                        buf = buf[size:]
+                        if self._on_event is not None:
+                            etype, dev_ts, voltage, current, power = parsed
+                            await self._on_event(etype, dev_ts, voltage, current, power)
         except (asyncio.IncompleteReadError, ConnectionResetError):
             pass
         finally:
