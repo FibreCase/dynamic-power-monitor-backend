@@ -15,7 +15,11 @@ def _env_int(name: str, default: int) -> int:
     return int(os.environ.get(name, str(default)))
 
 tcp_host: str = _env("PM_TCP_HOST", "0.0.0.0")
-tcp_port: int = _env_int("PM_TCP_PORT", 8888)
+tcp_port: int = _env_int("PM_TCP_PORT", 38888)
+
+# HTTP listen address for the dashboard + API + OTA endpoints (uvicorn).
+http_host: str = _env("PM_HTTP_HOST", "0.0.0.0")
+http_port: int = _env_int("PM_HTTP_PORT", 38000)
 
 db_path: Path = Path(_env("PM_DB_PATH", str(DEFAULT_DB_PATH)))
 

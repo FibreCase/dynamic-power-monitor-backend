@@ -1,7 +1,7 @@
 """FastAPI app: WebSocket live broadcast + HTTP history API.
 
 Wiring:
-- IngestServer (TCP 8888)  -> on_sample -> persist (throttled) + broadcast (live)
+- IngestServer (TCP 38888) -> on_sample -> persist (throttled) + broadcast (live)
 - WebSocket /ws            -> global viewer set; 0->1 viewers => 10 Hz,
                               1->0 viewers  => 0.1 Hz (downstream control)
 - GET /api/v1/history      -> query power_logs (time-descending)
@@ -222,7 +222,7 @@ class App:
     async def _ota_serve(self):
         """Serve the uploaded image to the ESP32 (the OTA download target).
 
-        This is the `http://<this host>:8000/ota/firmware.bin` the firmware
+        This is the `http://<this host>:38000/ota/firmware.bin` the firmware
         GETs after it receives the start-OTA control frame.
         """
         path = self._ota_bin_path()

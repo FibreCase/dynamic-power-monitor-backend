@@ -6,7 +6,7 @@ ESP32 to 10 Hz, and the last one leaving drops it back to 0.1 Hz.
 
 Run (with the backend already up, e.g. `uv run power-monitor`):
     cd python && uv run python scripts/watch_ws.py
-    cd python && uv run python scripts/watch_ws.py --url ws://192.168.1.50:8000/ws
+    cd python && uv run python scripts/watch_ws.py --url ws://192.168.1.50:38000/ws
     cd python && uv run python scripts/watch_ws.py --raw   # print raw JSON lines
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ import json
 
 import websockets
 
-DEFAULT_URL = "ws://127.0.0.1:8000/ws"
+DEFAULT_URL = "ws://127.0.0.1:38000/ws"
 
 
 def fmt_ts(ms: int) -> str:
