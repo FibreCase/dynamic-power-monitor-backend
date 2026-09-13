@@ -136,7 +136,14 @@ export default function LiveView({ health, unitMode = "m" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unitMode]);
 
-  const deviceOn = health?.device === true;
+  // 3-state device status (matches the header pill): an unreachable backend
+  // (health === null) reads as "未知" rather than the device being offline.
+  const deviceState =
+    health == null
+      ? { label: "未知", tone: "default" }
+      : health.device === true
+        ? { label: "在线", tone: "good" }
+        : { label: "离线", tone: "warning" };
 
   return (
     <div>
@@ -161,8 +168,8 @@ export default function LiveView({ health, unitMode = "m" }) {
         />
         <StatTile
           label="设备"
-          value={deviceOn ? "在线" : "离线"}
-          tone={deviceOn ? "good" : "warning"}
+          value={deviceState.label}
+          tone={deviceState.tone}
         />
         <StatTile
           label="链路"

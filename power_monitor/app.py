@@ -42,10 +42,14 @@ class App:
         self.db = Database(config.db_path,
                            batch_size=config.db_batch_size,
                            flush_interval=config.db_flush_interval)
-        self.tcp = IngestServer(config.tcp_host, config.tcp_port, self._on_sample)
+        self.tcp = IngestServer(config.tcp_host, config.tcp_port,
+                                self._on_sample, self._on_device_info)
         self._viewers: set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._last_db_ts: Optional[int] = None
+        # Device-reported info (running firmware version + active OTA slot),
+        # sent by the ESP32 once per connection. None until first seen.
+        self._device_info: Optional[dict] = None
         # OTA: the uploaded firmware image, stored as (size, mtime) so the
         # status endpoint can report it without a disk stat on every poll.
         self._ota: Optional[tuple[int, float]] = None
@@ -115,6 +119,13 @@ class App:
                 self._viewers.discard(ws)
 
     # -- sampling control from viewer count ----------------------------------
+    async def _on_device_info(self, version: str, slot: int) -> None:
+        """Store the running firmware version + active slot the device reported."""
+        info = {"firmware_version": version, "ota_slot": slot}
+        if self._device_info != info:
+            log.info("device info: v%s on slot=%d", version, slot)
+            self._device_info = info
+
     async def _set_viewers(self, count: int) -> None:
         if count > 0:
             await self.tcp.send_set_interval(config.interval_fast_ms)
@@ -155,7 +166,7 @@ class App:
         return await self.db.query_history(start_ts=start_ts, end_ts=end_ts, limit=limit)
 
     async def _healthz(self):
-        return {"status": "ok", "device": self.tcp.connected, "viewers": len(self._viewers)}
+        return {"status": "ok", "device": self.tcp.online, "viewers": len(self._viewers)}
 
     # -- OTA (firmware) -------------------------------------------------------
     def _ota_bin_path(self) -> Path:
@@ -188,18 +199,26 @@ class App:
         return {"ok": True, "size": self._ota[0], "path": str(path)}
 
     async def _ota_status(self):
-        """Whether a firmware image is available + device connectivity."""
+        """Firmware image availability + device connectivity + running firmware.
+
+        `firmware_version` / `ota_slot` are the device-reported values (running
+        firmware + active slot); they are None until the device has connected and
+        sent its one-time device-info frame.
+        """
         path = self._ota_bin_path()
         st = path.stat() if path.is_file() else None
         available = st is not None
         # Prefer the in-memory record (set on upload); fall back to the file.
         size = self._ota[0] if (available and self._ota) else (st.st_size if st else None)
         mtime = self._ota[1] if (available and self._ota) else (st.st_mtime if st else None)
+        info = self._device_info or {}
         return {
             "available": available,
             "size": size,
             "mtime": int(mtime) if mtime else None,
-            "device_online": self.tcp.connected,
+            "device_online": self.tcp.online,
+            "firmware_version": info.get("firmware_version"),
+            "ota_slot": info.get("ota_slot"),
         }
 
     async def _ota_update(self):
@@ -209,7 +228,7 @@ class App:
         """
         if not self._ota_bin_path().is_file():
             raise HTTPException(409, "no firmware uploaded yet (POST /ota/upload)")
-        if not self.tcp.connected:
+        if not self.tcp.online:
             raise HTTPException(409, "device is offline - cannot start OTA")
         if not await self.tcp.send_start_ota():
             raise HTTPException(502, "failed to send OTA command to device")

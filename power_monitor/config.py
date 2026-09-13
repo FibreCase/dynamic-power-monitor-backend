@@ -20,8 +20,14 @@ tcp_port: int = _env_int("PM_TCP_PORT", 8888)
 db_path: Path = Path(_env("PM_DB_PATH", str(DEFAULT_DB_PATH)))
 
 # Sampling intervals pushed to the ESP32 (ms).
-interval_fast_ms: int = _env_int("PM_INTERVAL_FAST_MS", 100)    # 10 Hz
-interval_slow_ms: int = _env_int("PM_INTERVAL_SLOW_MS", 10000)  # 0.1 Hz
+interval_fast_ms: int = _env_int("PM_INTERVAL_FAST_MS", 100)    # 10 Hz (viewers present)
+interval_slow_ms: int = _env_int("PM_INTERVAL_SLOW_MS", 10000)  # 0.1 Hz (no viewers)
+
+# Device liveness: a device counts as "online" only if the TCP link is open AND a
+# frame was received within this many seconds. Set well above the slowest sample
+# period (10 s idle) so a healthy idle device never reads offline, while a dead or
+# powered-off device flips to offline within one window. 30 s = 3x the 10 s idle.
+device_liveness_s: float = float(_env("PM_DEVICE_LIVENESS_S", "30"))
 
 # Persistence tuning.
 db_batch_size: int = _env_int("PM_DB_BATCH_SIZE", 50)

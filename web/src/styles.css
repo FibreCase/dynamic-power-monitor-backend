@@ -230,6 +230,7 @@ body {
   font-size: 22px;
   font-weight: 600;
   color: var(--text-primary);
+  overflow-wrap: anywhere; /* long values (e.g. a git-describe firmware version) wrap instead of overflowing */
 }
 
 .stat-tile__unit {

@@ -17,6 +17,24 @@ SAMPLE_HEADER = b"\xaa\x55"
 SAMPLE_CKSUM_OFFSET = SAMPLE_SIZE - 2                 # checksum is the last 2 bytes
 CKSUM_OFFSET = SAMPLE_CKSUM_OFFSET                     # alias
 
+# --- Upstream device-info: ESP32 -> host, fixed 37 bytes (little-endian) ---
+# Sent once per (re)connect, before the sample stream. Carries the running
+# app's version string and which OTA slot it is running from, so the dashboard
+# can show the current firmware + active slot.
+#   AA 53 | 32s version (null-padded) | u8 slot | u16 checksum
+#   slot   = running OTA slot index the firmware normalizes from the partition
+#            subtype: 0 (unknown), 1 (ota_0), 2 (ota_1). (ESP-IDF's raw OTA
+#            subtypes are 0x10/0x11; the firmware subtracts the base before
+#            sending so this byte stays small and stable.)
+# checksum = sum of the first 35 bytes (header + version + slot) & 0xFFFF
+INFO_FORMAT = "<2s32sBH"
+INFO_SIZE = struct.calcsize(INFO_FORMAT)              # 37
+INFO_HEADER = b"\xaa\x53"
+INFO_CKSUM_OFFSET = INFO_SIZE - 2                     # 35
+OTA_SLOT_UNKNOWN = 0
+OTA_SLOT_0 = 1
+OTA_SLOT_1 = 2
+
 # --- Downstream control: host -> ESP32, fixed 8 bytes (little-endian) ------
 # BB 66 | u8 cmd | u8 len | u16 payload | u16 checksum
 # checksum = sum of the first 6 bytes & 0xFFFF
@@ -73,3 +91,34 @@ def parse_sample(data: bytes) -> tuple[int, float, float, float] | None:
     _hdr, dev_ts, voltage, current, _ck = struct.unpack(SAMPLE_FORMAT, data)
     power_mw = voltage * current            # (V) * (mA) = mW
     return dev_ts, voltage, current, power_mw
+
+
+def parse_device_info(data: bytes) -> tuple[str, int] | None:
+    """Decode one 37-byte device-info frame.
+
+    Returns (version, slot) or None if the frame header or checksum is invalid.
+    `data` must be exactly INFO_SIZE bytes. `version` is the running app's version
+    string (NUL-terminated on the wire, stripped here); `slot` is the running
+    OTA slot index (OTA_SLOT_0 / OTA_SLOT_1 / OTA_SLOT_UNKNOWN).
+    """
+    if len(data) != INFO_SIZE:
+        return None
+    if data[0:2] != INFO_HEADER:
+        return None
+    if checksum(data[:INFO_CKSUM_OFFSET]) != struct.unpack("<H", data[INFO_CKSUM_OFFSET:])[0]:
+        return None
+    _hdr, version, slot, _ck = struct.unpack(INFO_FORMAT, data)
+    # The version field is a fixed 32-byte, NUL-padded string; decode as ascii and
+    # drop the trailing NUL(s). The firmware writes only printable bytes.
+    return version.decode("ascii", "replace").split("\x00", 1)[0], slot
+
+
+def build_device_info(version: str, slot: int) -> bytes:
+    """Pack a 37-byte device-info frame (the wire contract the firmware emits).
+
+    `version` is padded/truncated to 32 bytes; `slot` is the running partition
+    subtype. Useful for tests and any tooling that must speak the wire protocol.
+    """
+    version_bytes = version.encode("ascii", "replace")[:31].ljust(32, b"\x00")  # 32 B, NUL-padded
+    body = struct.pack("<2s32sB", INFO_HEADER, version_bytes, slot)  # 35 bytes, no cksum
+    return body + struct.pack("<H", checksum(body))

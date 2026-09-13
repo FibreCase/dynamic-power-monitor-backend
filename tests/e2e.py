@@ -40,6 +40,11 @@ def make_sample(dev_ts: int, voltage: float, current_ma: float) -> bytes:
     return body + struct.pack("<H", sum(body) & 0xFFFF)
 
 
+def make_device_info(version: str, slot: int) -> bytes:
+    """Build a valid 37-byte device-info frame (mirrors the firmware)."""
+    return protocol.build_device_info(version, slot)
+
+
 async def read_control(reader) -> int | None:
     """Read up to one complete 8-byte downstream control frame; return interval_ms."""
     buf = b""
@@ -109,6 +114,10 @@ async def run() -> int:
     try:
         # 1) Fake device connects FIRST so the control frames have a link.
         dev_reader, dev_writer = await asyncio.open_connection("127.0.0.1", INGEST_PORT)
+        # Report the running firmware version + slot (once per connect, like the
+        # real firmware) so /ota/status can be verified to surface it.
+        dev_writer.write(make_device_info("e2e-test-fw", protocol.OTA_SLOT_0))
+        await dev_writer.drain()
         await asyncio.sleep(0.1)
 
         # 2) Viewer connects -> 0->1 -> server sends interval=100 to the device.
@@ -186,6 +195,15 @@ async def run() -> int:
         #    (still-connected) device - it must receive the cmd=0x02 frame, and
         #    the image must be servable at the path the firmware downloads from.
         async with httpx.AsyncClient() as client:
+            # 8a) /ota/status surfaces the device-reported running firmware + slot.
+            st = (await client.get(f"http://127.0.0.1:{WEB_PORT}/ota/status")).json()
+            check("/ota/status reports device firmware_version",
+                  st.get("firmware_version") == "e2e-test-fw", str(st))
+            check("/ota/status reports device ota_slot",
+                  st.get("ota_slot") == protocol.OTA_SLOT_0, str(st))
+            check("/ota/status device_online reflects a live (just-connected) device",
+                  st.get("device_online") is True, str(st))
+
             up = (await client.post(
                 f"http://127.0.0.1:{WEB_PORT}/ota/upload",
                 files={"file": ("firmware.bin", b"\xde\xad\xbe\xef" * 64,
