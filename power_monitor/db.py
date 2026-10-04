@@ -24,13 +24,29 @@ CREATE_TABLE = (
     " dev_ts  INTEGER NOT NULL,"
     " voltage REAL    NOT NULL,"
     " current REAL    NOT NULL,"
-    " power   REAL    NOT NULL)"
+    " power   REAL    NOT NULL,"
+    " temperature REAL)"
 )
 CREATE_INDEX = "CREATE INDEX IF NOT EXISTS idx_power_logs_sys_ts ON power_logs (sys_ts)"
 INSERT_SQL = (
-    "INSERT INTO power_logs (sys_ts, dev_ts, voltage, current, power) "
-    "VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO power_logs (sys_ts, dev_ts, voltage, current, power, temperature) "
+    "VALUES (?, ?, ?, ?, ?, ?)"
 )
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive schema migrations for a DB created by an earlier version.
+
+    `CREATE TABLE IF NOT EXISTS` never alters an existing table, so any column
+    added to the schema above must be back-filled here for an existing DB.
+    `temperature` is nullable: rows written before the column existed (and any
+    sample whose device reported the sensor unavailable, which SQLite stores as
+    NULL) simply have no temperature.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(power_logs)")}
+    if "temperature" not in cols:
+        conn.execute("ALTER TABLE power_logs ADD COLUMN temperature REAL")
+        log.info("migrated power_logs: added nullable 'temperature' column")
 
 # Discrete overcurrent (OCP) events from either detection path. `source` is
 # 'device' (the INA226 ALERT pin) or 'host' (the backend threshold); `type`
@@ -75,13 +91,14 @@ class Database:
             self._conn.execute("PRAGMA synchronous=NORMAL;")
             self._conn.execute(CREATE_TABLE)
             self._conn.execute(CREATE_INDEX)
+            _migrate(self._conn)
             self._conn.execute(CREATE_EVENTS_TABLE)
             self._conn.execute(CREATE_EVENTS_INDEX)
             self._conn.commit()
         log.info("sqlite ready at %s (WAL, sync=NORMAL)", self._db_path)
 
-    async def put(self, row: tuple[int, int, float, float, float]) -> None:
-        """Enqueue one (sys_ts, dev_ts, voltage, current, power) sample."""
+    async def put(self, row: tuple[int, int, float, float, float, float]) -> None:
+        """Enqueue one (sys_ts, dev_ts, voltage, current, power, temperature)."""
         await self._queue.put(row)
 
     async def _flush(self, rows: list[tuple]) -> None:
@@ -128,7 +145,7 @@ class Database:
         limit = max(1, min(int(limit), 5000))
 
         def _do() -> list[tuple]:
-            sql = "SELECT sys_ts, dev_ts, voltage, current, power FROM power_logs"
+            sql = "SELECT sys_ts, dev_ts, voltage, current, power, temperature FROM power_logs"
             clauses: list[str] = []
             params: list = []
             if start_ts is not None:
@@ -145,7 +162,8 @@ class Database:
 
         rows = await asyncio.to_thread(_do)
         return [
-            {"sys_ts": r[0], "dev_ts": r[1], "voltage": r[2], "current": r[3], "power": r[4]}
+            {"sys_ts": r[0], "dev_ts": r[1], "voltage": r[2], "current": r[3],
+             "power": r[4], "temperature": r[5]}
             for r in rows
         ]
 

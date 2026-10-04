@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWsUrl } from "../api";
-import { buildStackedOption, buildMetrics, METRIC_COLORS } from "../chartOption";
+import { buildStackedOption, buildTemperatureOption, buildMetrics, METRIC_COLORS, samplePoint } from "../chartOption";
 import { getUnit, formatValue } from "../units";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
@@ -32,8 +32,9 @@ export default function LiveView({ health, unitMode = "m" }) {
   const currentUnit = getUnit("current", unitMode);
   const powerUnit = getUnit("power", unitMode);
 
-  const bufferRef = useRef([]); // ascending {sys_ts, voltage, current, power}
+  const bufferRef = useRef([]); // ascending {sys_ts, voltage, current, power, temperature}
   const chartRef = useRef(null);
+  const tempChartRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const backoffRef = useRef(500);
@@ -54,6 +55,10 @@ export default function LiveView({ health, unitMode = "m" }) {
       }),
     [],
   );
+
+  // Temperature rides its own chart (see buildTemperatureOption) and is
+  // unit-independent, so this is built once and never rebuilt.
+  const initialTempOption = useMemo(() => buildTemperatureOption([], { animate: false }), []);
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -118,26 +123,39 @@ export default function LiveView({ health, unitMode = "m" }) {
       );
       setLatest(buf[buf.length - 1]);
 
-      // min/max/avg over the (already unit-converted) window, one number per
-      // metric so the tile can show "min – max · avg" in small text.
-      const factor = Object.fromEntries(ms.map((m) => [m.key, m.factor]));
+      // Same window into the temperature chart.
+      tempChartRef.current?.setOption(
+        { series: [{ data: buf.map((s) => samplePoint(s, "temperature")) }] },
+        { notMerge: false, lazyUpdate: true },
+      );
+
+      // min/max/avg over the window, one number per metric so the tile can show
+      // "min - max | avg" in small text. Temperature is optional (a device with
+      // no sensor, or a historical row, has none), so it counts only real
+      // values and reports null when there are none.
+      const factor = { ...Object.fromEntries(ms.map((m) => [m.key, m.factor])), temperature: 1 };
       const stat = (key) => {
         const f = factor[key];
         let min = Infinity,
           max = -Infinity,
-          sum = 0;
+          sum = 0,
+          n = 0;
         for (const s of buf) {
-          const v = s[key] * f;
+          const raw = s[key];
+          if (typeof raw !== "number" || !Number.isFinite(raw)) continue;
+          const v = raw * f;
           if (v < min) min = v;
           if (v > max) max = v;
           sum += v;
+          n++;
         }
-        return { min, max, avg: sum / buf.length };
+        return n ? { min, max, avg: sum / n } : null;
       };
       setSummary({
         voltage: stat("voltage"),
         current: stat("current"),
         power: stat("power"),
+        temperature: stat("temperature"),
       });
     }, RENDER_TICK_MS);
     return () => clearInterval(id);
@@ -203,6 +221,13 @@ export default function LiveView({ health, unitMode = "m" }) {
           sublabel={rangeText(summary?.power, powerUnit.digits)}
         />
         <StatTile
+          label="温度"
+          value={fmt(latest?.temperature, 1)}
+          unit="°C"
+          dotColor={METRIC_COLORS.temperature}
+          sublabel={rangeText(summary?.temperature, 1)}
+        />
+        <StatTile
           label="设备"
           value={deviceState.label}
           tone={deviceState.tone}
@@ -237,6 +262,10 @@ export default function LiveView({ health, unitMode = "m" }) {
           </select>
         </div>
         <EChart ref={chartRef} option={initialOption} height={480} />
+      </div>
+
+      <div className="chart-card">
+        <EChart ref={tempChartRef} option={initialTempOption} height={180} />
       </div>
     </div>
   );

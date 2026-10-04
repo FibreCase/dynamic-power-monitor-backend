@@ -1,7 +1,7 @@
 """End-to-end test (no hardware): fake ESP32 over TCP + a WebSocket viewer.
 
 Verifies, against the real IngestServer / Database / FastAPI app:
-  1. 20-byte sample frames are reassembled (a frame split across two writes,
+  1. 24-byte sample frames are reassembled (a frame split across two writes,
      and one prefixed with garbage) and persisted to SQLite.
   2. The WebSocket viewer receives the broadcast JSON.
   3. First viewer -> 10 Hz downstream control (interval=100);
@@ -38,10 +38,10 @@ INGEST_PORT = 18888
 WEB_PORT = 18000
 
 
-def make_sample(dev_ts: int, voltage: float, current_ma: float) -> bytes:
-    """Build a valid 20-byte upstream frame (mirrors the firmware)."""
-    body = struct.pack("<2sQff", protocol.SAMPLE_HEADER, dev_ts, voltage, current_ma)
-    return body + struct.pack("<H", sum(body) & 0xFFFF)
+def make_sample(dev_ts: int, voltage: float, current_ma: float,
+                temp_c: float = 36.5) -> bytes:
+    """Build a valid 24-byte upstream frame (mirrors the firmware)."""
+    return protocol.build_sample(dev_ts, voltage, current_ma, temp_c)
 
 
 def make_device_info(version: str, slot: int) -> bytes:
@@ -136,8 +136,8 @@ async def run() -> int:
             check("first viewer -> 10Hz control (interval=100)", ctrl == 100, f"got {ctrl}")
 
             # 3) Send two good frames; f1 prefixed with garbage, f2 split in half.
-            f1 = make_sample(1_000, 12.045, 512.3)
-            f2 = make_sample(2_000, 12.100, 480.0)
+            f1 = make_sample(1_000, 12.045, 512.3, 36.5)
+            f2 = make_sample(2_000, 12.100, 480.0, 37.25)
             dev_writer.write(b"\x00\x13\x37" + f1)
             await dev_writer.drain()
             await asyncio.sleep(0.1)
@@ -158,12 +158,17 @@ async def run() -> int:
             if got:
                 g = got[0]
                 check("broadcast has all fields",
-                      all(k in g for k in ("sys_ts", "dev_ts", "voltage", "current", "power")))
+                      all(k in g for k in ("sys_ts", "dev_ts", "voltage", "current",
+                                           "power", "temperature")))
                 check("broadcast dev_ts is one of the sent values",
                       g.get("dev_ts") in (1000, 2000), str(g))
                 check("broadcast power == voltage*current (mW)",
                       abs(g["voltage"] * g["current"] - g["power"]) < 1.0,
                       f"v={g['voltage']} i={g['current']} p={g['power']}")
+                check("broadcast carries the device temperature",
+                      abs(g.get("temperature", 0) - 36.5) < 0.01
+                      or abs(g.get("temperature", 0) - 37.25) < 0.01,
+                      str(g.get("temperature")))
 
         # 5) Last viewer left -> 1->0 -> server sends interval=10000.
         ctrl2 = await read_control(dev_reader)
@@ -180,6 +185,9 @@ async def run() -> int:
                       rows[0]["sys_ts"] >= rows[1]["sys_ts"])
                 check("history contains both dev_ts",
                       {r_["dev_ts"] for r_ in rows} == {1000, 2000}, str(rows))
+                check("history rows carry temperature",
+                      all(isinstance(r_.get("temperature"), (int, float)) for r_ in rows),
+                      str(rows))
             empty = (await client.get(f"http://127.0.0.1:{WEB_PORT}/api/v1/history",
                                       params={"start_ts": 0, "end_ts": 0})).json()
             check("history range filter (empty range) returns 0", len(empty) == 0)

@@ -17,7 +17,7 @@ ESP32 固件与完整硬件上下文在父仓库中 —— 线格式与设备侧
 ## 功能
 
 - **接收（Ingest）** —— 把粘包 / 拆包的 TCP 字节流重组为固定大小的上游帧
-  （20 字节**采样**、37 字节**设备信息**、25 字节**OCP 事件**），逐帧校验校验和。
+  （24 字节**采样**、37 字节**设备信息**、25 字节**OCP 事件**），逐帧校验校验和。
 - **持久化（Persist）** —— 经队列解耦的批量写器把采样写入 SQLite（WAL），接收不会
   被磁盘写入阻塞。
 - **广播（Broadcast）** —— 每条采样都以全速率推给 WebSocket 查看者；第一个查看者
@@ -76,7 +76,7 @@ uv run power-monitor
 
 ```
 power_monitor/
-├── protocol.py   # 线格式：20 字节采样、37 字节设备信息、25 字节 OCP 事件、8 字节控制帧
+├── protocol.py   # 线格式：24 字节采样、37 字节设备信息、25 字节 OCP 事件、8 字节控制帧
 ├── tcp.py        # IngestServer：asyncio TCP 服务，按帧头分发重组，在线(liveness)+keepalive
 ├── db.py         # SQLite (WAL)：power_logs + ocp_events，队列解耦的批量写器
 ├── app.py        # FastAPI：/ws、/api/v1/history、/api/v1/alerts、/ota/*、/healthz + 面板静态挂载

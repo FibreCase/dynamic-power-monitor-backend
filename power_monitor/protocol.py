@@ -1,18 +1,22 @@
 """Shared wire protocol between the ESP32 firmware and this backend.
 
-Kept in one place so the 20-byte upstream sample and the 8-byte downstream
+Kept in one place so the 24-byte upstream sample and the 8-byte downstream
 control packet are defined (and tested) exactly once. Must stay in sync with
 the ESP32 firmware (see main/app_main.c) and TASK.md.
 """
 from __future__ import annotations
 
+import math
 import struct
 
-# --- Upstream sample: ESP32 -> host, fixed 20 bytes (little-endian) --------
-# AA 55 | u64 timestamp_ms | f32 voltage(V) | f32 current(mA) | u16 checksum
-# checksum = sum of the first 18 bytes & 0xFFFF
-SAMPLE_FORMAT = "<2sQffH"
-SAMPLE_SIZE = struct.calcsize(SAMPLE_FORMAT)          # 20
+# --- Upstream sample: ESP32 -> host, fixed 24 bytes (little-endian) --------
+# AA 55 | u64 timestamp_ms | f32 voltage(V) | f32 current(mA) | f32 temp(C)
+#       | u16 checksum
+# checksum = sum of the first 22 bytes & 0xFFFF
+# `temp` is the ESP32-C3 internal (die) temperature; it is a float and may be
+# NaN if the sensor was unavailable on the device (the dashboard shows a gap).
+SAMPLE_FORMAT = "<2sQfffH"
+SAMPLE_SIZE = struct.calcsize(SAMPLE_FORMAT)          # 24
 SAMPLE_HEADER = b"\xaa\x55"
 SAMPLE_CKSUM_OFFSET = SAMPLE_SIZE - 2                 # checksum is the last 2 bytes
 CKSUM_OFFSET = SAMPLE_CKSUM_OFFSET                     # alias
@@ -87,11 +91,14 @@ def build_control_start_ota() -> bytes:
     return _build_control(CMD_START_OTA, 0)
 
 
-def parse_sample(data: bytes) -> tuple[int, float, float, float] | None:
-    """Decode one 20-byte sample frame.
+def parse_sample(data: bytes) -> tuple[int, float, float, float, float | None] | None:
+    """Decode one 24-byte sample frame.
 
-    Returns (dev_ts, voltage, current, power_mw) or None if the frame header or
-    checksum is invalid. `data` must be exactly SAMPLE_SIZE bytes.
+    Returns (dev_ts, voltage, current, power_mw, temp_c) or None if the frame
+    header or checksum is invalid. `data` must be exactly SAMPLE_SIZE bytes.
+    `power_mw` is derived (V * mA); `temp_c` is the device's die temperature, or
+    None when the device reports the sensor unavailable (NaN on the wire - kept
+    as None so it stays JSON-compliant and stores as SQL NULL).
     """
     if len(data) != SAMPLE_SIZE:
         return None
@@ -99,9 +106,20 @@ def parse_sample(data: bytes) -> tuple[int, float, float, float] | None:
         return None
     if checksum(data[:SAMPLE_CKSUM_OFFSET]) != struct.unpack("<H", data[SAMPLE_CKSUM_OFFSET:])[0]:
         return None
-    _hdr, dev_ts, voltage, current, _ck = struct.unpack(SAMPLE_FORMAT, data)
+    _hdr, dev_ts, voltage, current, temp_c, _ck = struct.unpack(SAMPLE_FORMAT, data)
     power_mw = voltage * current            # (V) * (mA) = mW
-    return dev_ts, voltage, current, power_mw
+    if math.isnan(temp_c):
+        temp_c = None
+    return dev_ts, voltage, current, power_mw, temp_c
+
+
+def build_sample(dev_ts: int, voltage: float, current: float, temp_c: float) -> bytes:
+    """Pack a 24-byte upstream sample frame (the wire contract the firmware emits).
+
+    Useful for tests and any tooling that must speak the wire protocol.
+    """
+    body = struct.pack("<2sQfff", SAMPLE_HEADER, dev_ts, voltage, current, temp_c)
+    return body + struct.pack("<H", checksum(body))
 
 
 def parse_device_info(data: bytes) -> tuple[str, int] | None:

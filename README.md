@@ -18,7 +18,7 @@ its `README.md` / `CLAUDE.md` for the wire format and device side.
 ## What it does
 
 - **Ingest** — reassembles sticky/partial TCP frames into the fixed-size upstream
-  frames (20-byte **sample**, 37-byte **device-info**, 25-byte **OCP event**),
+  frames (24-byte **sample**, 37-byte **device-info**, 25-byte **OCP event**),
   checksum-verifying each.
 - **Persist** — writes samples to SQLite (WAL) through a queue-decoupled batch
   writer, so ingest never blocks on disk.
@@ -85,7 +85,7 @@ All tunables are `PM_*` environment variables (see `power_monitor/config.py`):
 
 ```
 power_monitor/
-├── protocol.py   # wire format: 20-byte sample, 37-byte device-info, 25-byte OCP event, 8-byte control pack
+├── protocol.py   # wire format: 24-byte sample, 37-byte device-info, 25-byte OCP event, 8-byte control pack
 ├── tcp.py        # IngestServer: asyncio TCP server, header-dispatched reassembly, liveness, keepalive
 ├── db.py         # SQLite (WAL): power_logs + ocp_events, queue-decoupled batch writer
 ├── app.py        # FastAPI: /ws, /api/v1/history, /api/v1/alerts, /ota/*, /healthz, + dashboard static mount

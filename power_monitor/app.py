@@ -103,12 +103,13 @@ class App:
             )
 
     # -- ingest fan-out ------------------------------------------------------
-    async def _on_sample(self, dev_ts: int, voltage: float, current: float, power_mw: float) -> None:
+    async def _on_sample(self, dev_ts: int, voltage: float, current: float,
+                         power_mw: float, temp_c: float) -> None:
         sys_ts = int(time.time() * 1000)
         # Persist at most once per db_store_interval_ms - independent of the
         # live sampling rate. The broadcast below is never throttled.
         if self._last_db_ts is None or sys_ts - self._last_db_ts >= config.db_store_interval_ms:
-            await self.db.put((sys_ts, dev_ts, voltage, current, power_mw))
+            await self.db.put((sys_ts, dev_ts, voltage, current, power_mw, temp_c))
             self._last_db_ts = sys_ts
         # Backend OCP threshold (one of the two detection paths; the INA226
         # ALERT pin is the other). Edge-triggered: a sustained overcurrent
@@ -133,6 +134,7 @@ class App:
             "voltage": voltage,
             "current": current,
             "power": power_mw,
+            "temperature": temp_c,
         }
         if self._viewers:
             dead: list[WebSocket] = []

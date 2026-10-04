@@ -2,7 +2,7 @@
 
 Listens on the TCP port with TCP_NODELAY and keeps one long-lived connection
 to the ESP32. Incoming bytes are reassembled with a sliding buffer to absorb
-sticky / partial packets; complete 20-byte frames are checksum-verified and
+sticky / partial packets; complete 24-byte frames are checksum-verified and
 decoded. The single open device connection also carries downstream control
 packets (set sampling interval).
 """
@@ -24,7 +24,7 @@ class IngestServer:
     def __init__(self, host: str, port: int, on_sample, on_device_info=None, on_event=None):
         self._host = host
         self._port = port
-        self._on_sample = on_sample              # async (dev_ts, v, i, p) -> None
+        self._on_sample = on_sample              # async (dev_ts, v, i, p, temp_c) -> None
         self._on_device_info = on_device_info    # async (version, slot) -> None (optional)
         self._on_event = on_event                # async (type, dev_ts, v, i, p) -> None (optional)
         self._server: asyncio.Server | None = None
@@ -135,8 +135,8 @@ class IngestServer:
                             buf = buf[1:]
                             continue
                         buf = buf[size:]
-                        dev_ts, voltage, current, power = parsed
-                        await self._on_sample(dev_ts, voltage, current, power)
+                        dev_ts, voltage, current, power, temp_c = parsed
+                        await self._on_sample(dev_ts, voltage, current, power, temp_c)
                     elif hdr == protocol.INFO_HEADER:
                         parsed = protocol.parse_device_info(frame)
                         if parsed is None:

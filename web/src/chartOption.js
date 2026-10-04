@@ -27,7 +27,20 @@ export const METRIC_COLORS = {
   voltage: isDark ? "#3987e5" : "#2a78d6", // categorical slot 1
   current: isDark ? "#d95926" : "#eb6834", // categorical slot 2
   power: isDark ? "#199e70" : "#1baf7a", // categorical slot 3
+  temperature: isDark ? "#c98500" : "#eda100", // categorical slot 4
 };
+
+/**
+ * One [ts, value] point for a sample, guarding a missing/non-finite value into
+ * a null so ECharts draws a gap. This matters for temperature: rows written
+ * before the column existed, and any sample from a device whose internal sensor
+ * is unavailable, carry no temperature (JSON null) - without the guard
+ * `null * 1` would plot a bogus 0 degC.
+ */
+export function samplePoint(sample, key, factor = 1) {
+  const v = sample[key];
+  return [sample.sys_ts, typeof v === "number" && Number.isFinite(v) ? v * factor : null];
+}
 
 // Build the three metric descriptors with labels that reflect the active
 // display units (mA/mW vs A/W). Rebuilt whenever the unit toggle changes.
@@ -113,7 +126,74 @@ export function buildStackedOption(
         valueFormatter: (v) =>
           typeof v === "number" ? `${v.toFixed(m.digits)} ${m.unit}` : v,
       },
-      data: samples.map((s) => [s.sys_ts, s[m.key] * m.factor]),
+      data: samples.map((s) => samplePoint(s, m.key, m.factor)),
     })),
+  };
+}
+
+/**
+ * Single-series temperature chart, rendered in its own card below the
+ * voltage/current/power chart.
+ *
+ * Deliberately NOT a fourth panel of `buildStackedOption`: that chart is small
+ * multiples, which the palette validates on the all-pairs list, and a 4th slot
+ * puts slot-4 yellow next to slot-2 orange - a pair that fails the all-pairs
+ * floor (normal-vision dE 13.7 light / CVD 4.8 dark). Temperature is also a
+ * different quantity on its own scale, so per the dataviz rules it gets its own
+ * chart rather than sharing the trio's axes. As a lone series its yellow is
+ * unpaired (validator: pass), and the title + tile label are its relief labels.
+ */
+export function buildTemperatureOption(samples = [], { animate = false } = {}) {
+  const color = METRIC_COLORS.temperature;
+  return {
+    animation: animate,
+    backgroundColor: "transparent",
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+      valueFormatter: (v) => (typeof v === "number" ? `${v.toFixed(1)} °C` : "—"),
+    },
+    grid: { left: 56, right: 24, top: 30, bottom: 28 },
+    title: {
+      text: "{dot|●} 温度 (°C)",
+      textStyle: {
+        rich: { dot: { color } },
+        color: INK.secondary,
+        fontSize: 12,
+        fontWeight: "normal",
+      },
+      left: 56,
+      top: 4,
+    },
+    xAxis: {
+      type: "time",
+      axisLabel: { color: INK.muted },
+      axisTick: { color: INK.muted },
+      axisLine: { lineStyle: { color: INK.axisLine } },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      scale: true,
+      axisLabel: { color: INK.muted },
+      axisLine: { show: false },
+      splitLine: { lineStyle: { color: INK.gridline } },
+    },
+    series: [
+      {
+        name: "温度 (°C)",
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        connectNulls: false, // leave a gap where the device reported no temperature
+        lineStyle: { width: 2, color },
+        areaStyle: { color, opacity: 0.1 },
+        itemStyle: { color },
+        tooltip: {
+          valueFormatter: (v) => (typeof v === "number" ? `${v.toFixed(1)} °C` : "—"),
+        },
+        data: samples.map((s) => samplePoint(s, "temperature")),
+      },
+    ],
   };
 }

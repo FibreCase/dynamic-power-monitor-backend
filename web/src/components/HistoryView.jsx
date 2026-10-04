@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { fetchHistory } from "../api";
-import { buildStackedOption, METRIC_COLORS } from "../chartOption";
+import { buildStackedOption, buildTemperatureOption, METRIC_COLORS } from "../chartOption";
 import { getUnit, formatValue } from "../units";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
@@ -37,7 +37,28 @@ function aggregate(rows) {
     voltage: withAvg(agg("voltage")),
     current: withAvg(agg("current")),
     power: withAvg(agg("power")),
+    temperature: aggregateOptional(rows, "temperature"),
   };
+}
+
+// Temperature is optional: rows written before the column existed, and any
+// sample from a device without a working internal sensor, carry none. Aggregate
+// over only the rows that have a real value (null when none do), so the tile is
+// simply omitted rather than showing NaN.
+function aggregateOptional(rows, key) {
+  let min = Infinity;
+  let max = -Infinity;
+  let sum = 0;
+  let n = 0;
+  for (const r of rows) {
+    const v = r[key];
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+    sum += v;
+    n++;
+  }
+  return n ? { min, max, avg: sum / n } : null;
 }
 
 export default function HistoryView({ unitMode = "m" }) {
@@ -59,6 +80,10 @@ export default function HistoryView({ unitMode = "m" }) {
         powerUnit: unitMode,
       }),
     [ascRows, unitMode],
+  );
+  const tempOption = useMemo(
+    () => buildTemperatureOption(ascRows, { animate: true }),
+    [ascRows],
   );
 
   async function onSubmit(e) {
@@ -136,6 +161,15 @@ export default function HistoryView({ unitMode = "m" }) {
             sublabel={`${formatValue(stats.power.min, powerUnit)} – ${formatValue(stats.power.max, powerUnit)}`}
             dotColor={METRIC_COLORS.power}
           />
+          {stats.temperature && (
+            <StatTile
+              label="温度均值"
+              value={stats.temperature.avg.toFixed(1)}
+              unit="°C"
+              sublabel={`${stats.temperature.min.toFixed(1)} – ${stats.temperature.max.toFixed(1)}`}
+              dotColor={METRIC_COLORS.temperature}
+            />
+          )}
         </div>
       )}
 
@@ -147,6 +181,10 @@ export default function HistoryView({ unitMode = "m" }) {
             <EChart option={chartOption} height={480} />
           </div>
 
+          <div className="chart-card">
+            <EChart option={tempOption} height={180} />
+          </div>
+
           <div className="table-scroll">
             <table className="data-table">
               <thead>
@@ -155,6 +193,7 @@ export default function HistoryView({ unitMode = "m" }) {
                   <th>电压 (V)</th>
                   <th>电流 ({currentUnit.label})</th>
                   <th>功率 ({powerUnit.label})</th>
+                  <th>温度 (°C)</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,6 +203,7 @@ export default function HistoryView({ unitMode = "m" }) {
                     <td>{r.voltage.toFixed(3)}</td>
                     <td>{formatValue(r.current, currentUnit)}</td>
                     <td>{formatValue(r.power, powerUnit)}</td>
+                    <td>{r.temperature == null ? "—" : r.temperature.toFixed(1)}</td>
                   </tr>
                 ))}
               </tbody>
