@@ -1,32 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWsUrl } from "../api";
 import { buildStackedOption, buildTemperatureOption, buildMetrics, METRIC_COLORS, samplePoint } from "../chartOption";
-import { getUnit, formatValue } from "../units";
+import { getUnit, formatValue, DEFAULT_UNIT_MODE } from "../units";
+import { useLang, useT } from "../i18n";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
 
 const WINDOW_OPTIONS = [
-  { ms: 30_000, label: "30 秒" },
-  { ms: 60_000, label: "1 分钟" },
-  { ms: 120_000, label: "2 分钟" },
-  { ms: 300_000, label: "5 分钟" },
+  { ms: 30_000, labelKey: "live.window.30s" },
+  { ms: 60_000, labelKey: "live.window.1m" },
+  { ms: 120_000, labelKey: "live.window.2m" },
+  { ms: 300_000, labelKey: "live.window.5m" },
 ];
 
 const RENDER_TICK_MS = 200; // chart refresh cadence, independent of the device's 0.1-10 Hz sample rate
 
 const LINK_TONE = { connecting: "default", connected: "good", reconnecting: "warning" };
-const LINK_LABEL = { connecting: "连接中", connected: "已连接", reconnecting: "重连中" };
+const LINK_LABEL_KEY = {
+  connecting: "link.connecting",
+  connected: "link.connected",
+  reconnecting: "link.reconnecting",
+};
 
 function fmt(n, digits) {
   return typeof n === "number" ? n.toFixed(digits) : "--";
 }
 
-export default function LiveView({ health, unitMode = "m" }) {
+export default function LiveView({ health, unitMode = DEFAULT_UNIT_MODE }) {
+  const t = useT();
+  const lang = useLang();
   const [windowMs, setWindowMs] = useState(60_000);
   const [linkStatus, setLinkStatus] = useState("connecting");
   const [latest, setLatest] = useState(null);
-  // {voltage,current,power} -> {min,max,avg} over the samples currently in the
-  // window, already converted to the active display unit (raw is mA / mW).
+  // {voltage,current,power,temperature} -> {min,max,avg} over the samples
+  // currently in the window, already converted to the active display unit.
   const [summary, setSummary] = useState(null);
 
   const currentUnit = getUnit("current", unitMode);
@@ -42,7 +49,7 @@ export default function LiveView({ health, unitMode = "m" }) {
 
   // Metric display-factors for the active units; the 200ms tick reads this
   // ref so live samples are pushed already converted to the chosen unit.
-  const metricsRef = useRef(buildMetrics({ currentUnit: unitMode, powerUnit: unitMode }));
+  const metricsRef = useRef(buildMetrics({ currentUnit: unitMode, powerUnit: unitMode, lang }));
 
   // Built once (empty series) - all subsequent updates go through the
   // imperative chartRef.setOption path below, never re-triggering this.
@@ -52,13 +59,17 @@ export default function LiveView({ health, unitMode = "m" }) {
         animate: false,
         currentUnit: unitMode,
         powerUnit: unitMode,
+        lang,
       }),
+    // mount-time seed only; unit/lang changes re-theme via the effect below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
   // Temperature rides its own chart (see buildTemperatureOption) and is
-  // unit-independent, so this is built once and never rebuilt.
-  const initialTempOption = useMemo(() => buildTemperatureOption([], { animate: false }), []);
+  // unit-independent, so this is seeded once too.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initialTempOption = useMemo(() => buildTemperatureOption([], { animate: false, lang }), []);
 
   useEffect(() => {
     unmountedRef.current = false;
@@ -161,35 +172,36 @@ export default function LiveView({ health, unitMode = "m" }) {
     return () => clearInterval(id);
   }, [windowMs, unitMode]);
 
-  // When the unit toggle changes, push a fresh full option (new titles,
-  // tooltips, and converted series) so the whole chart re-themes in place
-  // without remounting the WebSocket. The first mount is skipped because
-  // `initialOption` already seeded the chart with the active units.
-  const firstUnitRenderRef = useRef(true);
+  // When the unit or language changes, push a fresh full option (new titles,
+  // tooltips, converted series) so the charts re-theme in place without
+  // remounting the WebSocket. The first mount is skipped because the two
+  // `initial*Option` seeds above already drew them with the active settings.
+  const firstThemeRenderRef = useRef(true);
   useEffect(() => {
-    metricsRef.current = buildMetrics({ currentUnit: unitMode, powerUnit: unitMode });
-    if (firstUnitRenderRef.current) {
-      firstUnitRenderRef.current = false;
+    metricsRef.current = buildMetrics({ currentUnit: unitMode, powerUnit: unitMode, lang });
+    if (firstThemeRenderRef.current) {
+      firstThemeRenderRef.current = false;
       return;
     }
+    const samples = bufferRef.current.map((s) => ({ ...s }));
     chartRef.current?.setOption(
-      buildStackedOption(
-        bufferRef.current.map((s) => ({ ...s })),
-        { animate: false, currentUnit: unitMode, powerUnit: unitMode },
-      ),
+      buildStackedOption(samples, { animate: false, currentUnit: unitMode, powerUnit: unitMode, lang }),
       { notMerge: true, lazyUpdate: true },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitMode]);
+    tempChartRef.current?.setOption(
+      buildTemperatureOption(samples, { animate: false, lang }),
+      { notMerge: true, lazyUpdate: true },
+    );
+  }, [unitMode, lang]);
 
   // 3-state device status (matches the header pill): an unreachable backend
-  // (health === null) reads as "未知" rather than the device being offline.
+  // (health === null) reads as "unknown" rather than the device being offline.
   const deviceState =
     health == null
-      ? { label: "未知", tone: "default" }
+      ? { labelKey: "status.unknown", tone: "default" }
       : health.device === true
-        ? { label: "在线", tone: "good" }
-        : { label: "离线", tone: "warning" };
+        ? { labelKey: "status.online", tone: "good" }
+        : { labelKey: "status.offline", tone: "warning" };
 
   // "min - max | avg" for a metric's window summary (already unit-converted);
   // the unit itself stays on the main value, so these are bare numbers.
@@ -200,43 +212,43 @@ export default function LiveView({ health, unitMode = "m" }) {
     <div>
       <div className="stat-row">
         <StatTile
-          label="电压"
+          label={t("metric.voltage")}
           value={fmt(latest?.voltage, 3)}
           unit="V"
           dotColor={METRIC_COLORS.voltage}
           sublabel={rangeText(summary?.voltage, 3)}
         />
         <StatTile
-          label="电流"
+          label={t("metric.current")}
           value={formatValue(latest?.current, currentUnit)}
           unit={currentUnit.label}
           dotColor={METRIC_COLORS.current}
           sublabel={rangeText(summary?.current, currentUnit.digits)}
         />
         <StatTile
-          label="功率"
+          label={t("metric.power")}
           value={formatValue(latest?.power, powerUnit)}
           unit={powerUnit.label}
           dotColor={METRIC_COLORS.power}
           sublabel={rangeText(summary?.power, powerUnit.digits)}
         />
         <StatTile
-          label="温度"
+          label={t("metric.temperature")}
           value={fmt(latest?.temperature, 1)}
           unit="°C"
           dotColor={METRIC_COLORS.temperature}
           sublabel={rangeText(summary?.temperature, 1)}
         />
         <StatTile
-          label="设备"
-          value={deviceState.label}
+          label={t("metric.device")}
+          value={t(deviceState.labelKey)}
           tone={deviceState.tone}
         />
         <StatTile
-          label="链路"
-          value={LINK_LABEL[linkStatus]}
+          label={t("metric.link")}
+          value={t(LINK_LABEL_KEY[linkStatus])}
           tone={LINK_TONE[linkStatus]}
-          sublabel={health ? `查看人数 ${health.viewers}` : undefined}
+          sublabel={health ? t("live.viewers", { n: health.viewers }) : undefined}
         />
       </div>
 
@@ -244,10 +256,10 @@ export default function LiveView({ health, unitMode = "m" }) {
         <div className="chart-card__toolbar">
           <span className="chart-card__live">
             <span className="chart-card__live-dot" />
-            实时
+            {t("live.badge")}
           </span>
           <label htmlFor="live-window" style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-            显示窗口
+            {t("live.window")}
           </label>
           <select
             id="live-window"
@@ -256,7 +268,7 @@ export default function LiveView({ health, unitMode = "m" }) {
           >
             {WINDOW_OPTIONS.map((o) => (
               <option key={o.ms} value={o.ms}>
-                {o.label}
+                {t(o.labelKey)}
               </option>
             ))}
           </select>

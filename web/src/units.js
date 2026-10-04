@@ -3,7 +3,9 @@
 // module is purely presentational and converts for display only.
 //
 // `m` = milliwatt/milliampere (the raw stored unit), `S` = SI base unit
-// (ampere / watt).
+// (ampere / watt). The dashboard defaults to SI (A / W); a stored preference
+// overrides it.
+export const DEFAULT_UNIT_MODE = "S";
 
 export const CURRENT_UNITS = [
   { id: "m", label: "mA", factor: 1, digits: 2, si: "A", siFactor: 0.001, siDigits: 3 },
@@ -15,12 +17,11 @@ export const POWER_UNITS = [
   { id: "S", label: "W", factor: 0.001, digits: 2, si: null },
 ];
 
-// Resolve a unit definition by id; unknown ids fall back to the first
-// (default, mA / mW) entry so a stale or corrupted preference can't crash the
-// view.
+// Resolve a unit definition by id; an unknown/missing id falls back to the
+// default (SI) entry so a stale or corrupted preference can't crash the view.
 export function getUnit(kind, id) {
   const list = kind === "current" ? CURRENT_UNITS : POWER_UNITS;
-  return list.find((u) => u.id === id) ?? list[0];
+  return list.find((u) => u.id === id) ?? list.find((u) => u.id === DEFAULT_UNIT_MODE) ?? list[0];
 }
 
 // Convert a raw mA / mW value to the selected display unit and format it.

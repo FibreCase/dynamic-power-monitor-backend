@@ -13,7 +13,7 @@ This directory is a standalone component (its own git repo, embedded as a
 The ESP32 firmware and the full hardware context live in that parent repo — see
 its `README.md` / `CLAUDE.md` for the wire format and device side.
 
-![Web dashboard — 实时监控 (live view)](assets/web.png)
+![Web dashboard — Live view](assets/web.png)
 
 ## What it does
 
@@ -100,8 +100,8 @@ tests/
 
 ## Dashboard (`web/`)
 
-A four-tab single-page app — **实时监控** (live, WebSocket-driven chart),
-**历史查询** (history), **异常日志** (overcurrent log), and **固件更新** (OTA) —
+A four-tab single-page app — **Live** (WebSocket-driven chart),
+**History** (query by time range), **Alerts** (overcurrent log), and **Firmware** (OTA) —
 built with React, Vite, and ECharts.
 
 ```bash

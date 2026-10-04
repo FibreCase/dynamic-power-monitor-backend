@@ -13,6 +13,7 @@
 // reactive - a live OS theme flip won't re-theme an already-open chart
 // without a reload, an accepted v1 scope cut.)
 import { getUnit } from "./units";
+import { translate } from "./i18n";
 
 const isDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
 
@@ -43,14 +44,17 @@ export function samplePoint(sample, key, factor = 1) {
 }
 
 // Build the three metric descriptors with labels that reflect the active
-// display units (mA/mW vs A/W). Rebuilt whenever the unit toggle changes.
-export function buildMetrics({ currentUnit = "m", powerUnit = "m" }) {
+// display units (mA/mW vs A/W) and language. Rebuilt whenever either changes.
+export function buildMetrics({ currentUnit = "m", powerUnit = "m", lang = "zh" } = {}) {
   const cu = getUnit("current", currentUnit);
   const pu = getUnit("power", powerUnit);
+  const v = translate(lang, "metric.voltage");
+  const i = translate(lang, "metric.current");
+  const p = translate(lang, "metric.power");
   return [
-    { key: "voltage", label: `电压 (V)`, color: METRIC_COLORS.voltage, factor: 1, digits: 3, unit: "V" },
-    { key: "current", label: `电流 (${cu.label})`, color: METRIC_COLORS.current, factor: cu.factor, digits: cu.digits, unit: cu.label },
-    { key: "power", label: `功率 (${pu.label})`, color: METRIC_COLORS.power, factor: pu.factor, digits: pu.digits, unit: pu.label },
+    { key: "voltage", label: `${v} (V)`, color: METRIC_COLORS.voltage, factor: 1, digits: 3, unit: "V" },
+    { key: "current", label: `${i} (${cu.label})`, color: METRIC_COLORS.current, factor: cu.factor, digits: cu.digits, unit: cu.label },
+    { key: "power", label: `${p} (${pu.label})`, color: METRIC_COLORS.power, factor: pu.factor, digits: pu.digits, unit: pu.label },
   ];
 }
 
@@ -62,9 +66,9 @@ export function buildMetrics({ currentUnit = "m", powerUnit = "m" }) {
  */
 export function buildStackedOption(
   samples = [],
-  { animate = false, currentUnit = "m", powerUnit = "m" } = {},
+  { animate = false, currentUnit = "m", powerUnit = "m", lang = "zh" } = {},
 ) {
-  const METRICS = buildMetrics({ currentUnit, powerUnit });
+  const METRICS = buildMetrics({ currentUnit, powerUnit, lang });
   const n = METRICS.length;
   const gap = 8;
   const h = (100 - gap * (n - 1)) / n;
@@ -143,8 +147,9 @@ export function buildStackedOption(
  * chart rather than sharing the trio's axes. As a lone series its yellow is
  * unpaired (validator: pass), and the title + tile label are its relief labels.
  */
-export function buildTemperatureOption(samples = [], { animate = false } = {}) {
+export function buildTemperatureOption(samples = [], { animate = false, lang = "zh" } = {}) {
   const color = METRIC_COLORS.temperature;
+  const label = `${translate(lang, "metric.temperature")} (°C)`;
   return {
     animation: animate,
     backgroundColor: "transparent",
@@ -155,7 +160,7 @@ export function buildTemperatureOption(samples = [], { animate = false } = {}) {
     },
     grid: { left: 56, right: 24, top: 30, bottom: 28 },
     title: {
-      text: "{dot|●} 温度 (°C)",
+      text: `{dot|●} ${label}`,
       textStyle: {
         rich: { dot: { color } },
         color: INK.secondary,
@@ -181,7 +186,7 @@ export function buildTemperatureOption(samples = [], { animate = false } = {}) {
     },
     series: [
       {
-        name: "温度 (°C)",
+        name: label,
         type: "line",
         showSymbol: false,
         sampling: "lttb",

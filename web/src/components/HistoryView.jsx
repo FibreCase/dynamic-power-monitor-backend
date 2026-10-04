@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { fetchHistory } from "../api";
 import { buildStackedOption, buildTemperatureOption, METRIC_COLORS } from "../chartOption";
-import { getUnit, formatValue } from "../units";
+import { DEFAULT_UNIT_MODE, getUnit, formatValue } from "../units";
+import { useLang, useT } from "../i18n";
 import EChart from "./EChart";
 import StatTile from "./StatTile";
 
@@ -61,7 +62,9 @@ function aggregateOptional(rows, key) {
   return n ? { min, max, avg: sum / n } : null;
 }
 
-export default function HistoryView({ unitMode = "m" }) {
+export default function HistoryView({ unitMode = DEFAULT_UNIT_MODE }) {
+  const t = useT();
+  const lang = useLang();
   const [form, setForm] = useState({ start: "", end: "", limit: DEFAULT_LIMIT });
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState("idle"); // idle | loading | error
@@ -78,12 +81,13 @@ export default function HistoryView({ unitMode = "m" }) {
         animate: true,
         currentUnit: unitMode,
         powerUnit: unitMode,
+        lang,
       }),
-    [ascRows, unitMode],
+    [ascRows, unitMode, lang],
   );
   const tempOption = useMemo(
-    () => buildTemperatureOption(ascRows, { animate: true }),
-    [ascRows],
+    () => buildTemperatureOption(ascRows, { animate: true, lang }),
+    [ascRows, lang],
   );
 
   async function onSubmit(e) {
@@ -106,7 +110,7 @@ export default function HistoryView({ unitMode = "m" }) {
     <div>
       <form className="query-form" onSubmit={onSubmit}>
         <label>
-          起始时间
+          {t("history.start")}
           <input
             type="datetime-local"
             value={form.start}
@@ -114,7 +118,7 @@ export default function HistoryView({ unitMode = "m" }) {
           />
         </label>
         <label>
-          结束时间
+          {t("history.end")}
           <input
             type="datetime-local"
             value={form.end}
@@ -122,7 +126,7 @@ export default function HistoryView({ unitMode = "m" }) {
           />
         </label>
         <label>
-          条数上限
+          {t("history.limit")}
           <input
             type="number"
             min={1}
@@ -132,30 +136,30 @@ export default function HistoryView({ unitMode = "m" }) {
           />
         </label>
         <button type="submit" disabled={status === "loading"}>
-          {status === "loading" ? "查询中…" : "查询"}
+          {status === "loading" ? t("history.querying") : t("history.query")}
         </button>
         {status === "error" && <span className="form-error">{error}</span>}
       </form>
 
       {stats && (
         <div className="stat-row">
-          <StatTile label="记录数" value={stats.count} />
+          <StatTile label={t("history.count")} value={stats.count} />
           <StatTile
-            label="电压均值"
+            label={t("history.avgVoltage")}
             value={stats.voltage.avg.toFixed(3)}
             unit="V"
             sublabel={`${stats.voltage.min.toFixed(3)} – ${stats.voltage.max.toFixed(3)}`}
             dotColor={METRIC_COLORS.voltage}
           />
           <StatTile
-            label="电流均值"
+            label={t("history.avgCurrent")}
             value={formatValue(stats.current.avg, currentUnit)}
             unit={currentUnit.label}
             sublabel={`${formatValue(stats.current.min, currentUnit)} – ${formatValue(stats.current.max, currentUnit)}`}
             dotColor={METRIC_COLORS.current}
           />
           <StatTile
-            label="功率均值"
+            label={t("history.avgPower")}
             value={formatValue(stats.power.avg, powerUnit)}
             unit={powerUnit.label}
             sublabel={`${formatValue(stats.power.min, powerUnit)} – ${formatValue(stats.power.max, powerUnit)}`}
@@ -163,7 +167,7 @@ export default function HistoryView({ unitMode = "m" }) {
           />
           {stats.temperature && (
             <StatTile
-              label="温度均值"
+              label={t("history.avgTemperature")}
               value={stats.temperature.avg.toFixed(1)}
               unit="°C"
               sublabel={`${stats.temperature.min.toFixed(1)} – ${stats.temperature.max.toFixed(1)}`}
@@ -174,7 +178,7 @@ export default function HistoryView({ unitMode = "m" }) {
       )}
 
       {rows.length === 0 ? (
-        <p className="empty-note">尚无查询结果 — 设置时间范围（留空表示不限）后点击“查询”。</p>
+        <p className="empty-note">{t("history.empty")}</p>
       ) : (
         <>
           <div className="chart-card">
@@ -189,11 +193,11 @@ export default function HistoryView({ unitMode = "m" }) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>时间</th>
-                  <th>电压 (V)</th>
-                  <th>电流 ({currentUnit.label})</th>
-                  <th>功率 ({powerUnit.label})</th>
-                  <th>温度 (°C)</th>
+                  <th>{t("col.time")}</th>
+                  <th>{t("col.withUnit", { metric: t("metric.voltage"), unit: "V" })}</th>
+                  <th>{t("col.withUnit", { metric: t("metric.current"), unit: currentUnit.label })}</th>
+                  <th>{t("col.withUnit", { metric: t("metric.power"), unit: powerUnit.label })}</th>
+                  <th>{t("col.withUnit", { metric: t("metric.temperature"), unit: "°C" })}</th>
                 </tr>
               </thead>
               <tbody>

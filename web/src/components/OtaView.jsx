@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchOtaStatus, startOtaUpdate, uploadFirmware } from "../api";
+import { useT } from "../i18n";
 import StatTile from "./StatTile";
 
 const STATUS_POLL_MS = 4000;
@@ -23,9 +24,12 @@ function fmtTime(ms) {
 }
 
 export default function OtaView({ deviceOnline }) {
+  const t = useT();
   const [status, setStatus] = useState(null); // {available,size,mtime,device_online,firmware_version,ota_slot}
   const [busy, setBusy] = useState(null); // "upload" | "update" | null
-  const [message, setMessage] = useState(null); // {ok, text}
+  // Either a translation key (+params) so it re-renders on a language switch, or
+  // a raw server-provided string (the backend's own message text).
+  const [message, setMessage] = useState(null); // {ok, key?, params?, text?}
   const fileRef = useRef(null);
 
   const load = useCallback(() => {
@@ -48,26 +52,27 @@ export default function OtaView({ deviceOnline }) {
     setMessage(null);
     try {
       const r = await uploadFirmware(file);
-      setMessage({ ok: true, text: `已保存固件 ${file.name}（${fmtBytes(r.size)}）。` });
+      setMessage({ ok: true, key: "ota.saved", params: { name: file.name, size: fmtBytes(r.size) } });
       load();
     } catch (err) {
-      setMessage({ ok: false, text: `上传失败：${err.message ?? err}` });
+      setMessage({ ok: false, key: "ota.uploadFailed", params: { err: String(err.message ?? err) } });
     } finally {
       setBusy(null);
     }
   }
 
   async function onUpdate() {
-    if (!window.confirm("即将向设备发送 OTA 命令，设备将重启进入新固件。确认继续？")) {
+    if (!window.confirm(t("ota.confirm"))) {
       return;
     }
     setBusy("update");
     setMessage(null);
     try {
       const r = await startOtaUpdate();
-      setMessage({ ok: true, text: r.message ?? "命令已发送，设备即将重启。" });
+      // Prefer the backend's own message; fall back to a translated default.
+      setMessage(r.message ? { ok: true, text: r.message } : { ok: true, key: "ota.sent" });
     } catch (err) {
-      setMessage({ ok: false, text: `更新失败：${err.message ?? err}` });
+      setMessage({ ok: false, key: "ota.updateFailed", params: { err: String(err.message ?? err) } });
     } finally {
       setBusy(null);
     }
@@ -80,35 +85,35 @@ export default function OtaView({ deviceOnline }) {
   // connected and sent its one-time device-info frame -> show a placeholder.
   const firmware = status?.firmware_version ?? null;
   const slot = status?.ota_slot;
-  const slotLabel = slot == null ? null : SLOT_LABEL[slot] ?? "未知";
+  const slotLabel = slot == null ? null : SLOT_LABEL[slot] ?? t("status.unknown");
 
   return (
     <div>
       <div className="stat-row">
         <StatTile
-          label="当前固件"
+          label={t("ota.currentFirmware")}
           value={firmware ?? "—"}
           tone={firmware ? "default" : "warning"}
-          sublabel={firmware ? "设备运行版本" : "设备未上报（未连接或旧固件）"}
+          sublabel={firmware ? t("ota.runningVersion") : t("ota.notReportedOld")}
         />
         <StatTile
-          label="当前 OTA 槽位"
+          label={t("ota.currentSlot")}
           value={slotLabel ?? "—"}
           tone={slotLabel ? "default" : "warning"}
-          sublabel={slotLabel ? "运行分区" : "设备未上报"}
+          sublabel={slotLabel ? t("ota.runningPartition") : t("ota.notReported")}
         />
       </div>
 
       <section className="ota-panel">
         <div className="ota-panel__head">
-          <h2 className="ota-panel__title">固件更新（OTA）</h2>
+          <h2 className="ota-panel__title">{t("ota.title")}</h2>
           <div className="ota-panel__status">
             <span className={`status-pill status-pill--${available ? "good" : "warning"}`}>
               <span className="status-pill__dot" />
-              {available ? `已保存固件 · ${fmtBytes(status.size)}` : "未上传固件"}
+              {available ? t("ota.stored", { size: fmtBytes(status.size) }) : t("ota.none")}
             </span>
             {status?.mtime != null && (
-              <span className="ota-panel__mtime">上传于 {fmtTime(status.mtime)}</span>
+              <span className="ota-panel__mtime">{t("ota.uploadedAt", { time: fmtTime(status.mtime) })}</span>
             )}
           </div>
         </div>
@@ -116,7 +121,7 @@ export default function OtaView({ deviceOnline }) {
         <div className="ota-panel__actions">
           <label className="ota-file">
             <input ref={fileRef} type="file" accept=".bin" onChange={onUpload} disabled={busy != null} />
-            <span className="ota-file__btn">选择 .bin 固件</span>
+            <span className="ota-file__btn">{t("ota.choose")}</span>
           </label>
           <button
             type="button"
@@ -124,18 +129,17 @@ export default function OtaView({ deviceOnline }) {
             onClick={onUpdate}
             disabled={busy != null || !available || !online}
           >
-            {busy === "update" ? "发送中…" : "推送到设备"}
+            {busy === "update" ? t("ota.pushing") : t("ota.push")}
           </button>
           {message && (
             <span className={`ota-message ${message.ok ? "ota-message--ok" : "ota-message--err"}`}>
-              {message.text}
+              {message.key ? t(message.key, message.params) : message.text}
             </span>
           )}
         </div>
 
         <p className="ota-panel__hint">
-          流程：选择固件 .bin → “推送到设备”。设备会拉取并重启；设备{online ? "在线" : "离线"}。
-          若新固件无法启动，设备将自动回滚到上一版本。
+          {t("ota.hint", { status: t(online ? "status.online" : "status.offline") })}
         </p>
       </section>
     </div>

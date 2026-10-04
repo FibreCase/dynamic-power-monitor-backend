@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchAlerts } from "../api";
-import { getUnit, formatValue } from "../units";
+import { DEFAULT_UNIT_MODE, getUnit, formatValue } from "../units";
+import { useT } from "../i18n";
 import StatTile from "./StatTile";
 
 const POLL_MS = 5000; // refresh cadence; events are low-frequency
 const PAGE_LIMIT = 200;
 
 // source column: 'device' = INA226 ALERT pin (hardware), 'host' = backend threshold.
-const SOURCE_LABEL = { device: "设备告警", host: "后端阈值" };
-const TYPE_LABEL = { 0x01: "过流" };
+const SOURCE_KEY = { device: "alerts.source.device", host: "alerts.source.host" };
+const TYPE_KEY = { 0x01: "alerts.type.ocp" };
 
 function pad(n, width = 2) {
   return String(n).padStart(width, "0");
@@ -22,7 +23,8 @@ function fmtTime(ms) {
   );
 }
 
-export default function AlertView({ unitMode = "m" }) {
+export default function AlertView({ unitMode = DEFAULT_UNIT_MODE }) {
+  const t = useT();
   const [rows, setRows] = useState(null); // null = never loaded yet
   const [error, setError] = useState(null);
 
@@ -51,38 +53,36 @@ export default function AlertView({ unitMode = "m" }) {
   return (
     <div>
       <div className="stat-row">
-        <StatTile label="事件总数" value={rows == null ? "…" : total} tone={total > 0 ? "warning" : "default"} />
-        <StatTile label="设备告警" value={rows == null ? "…" : deviceCount} sublabel="INA226 ALERT 引脚" />
-        <StatTile label="后端阈值" value={rows == null ? "…" : hostCount} sublabel="后端电流判定" />
+        <StatTile label={t("alerts.total")} value={rows == null ? "…" : total} tone={total > 0 ? "warning" : "default"} />
+        <StatTile label={t("alerts.device")} value={rows == null ? "…" : deviceCount} sublabel={t("alerts.deviceSub")} />
+        <StatTile label={t("alerts.host")} value={rows == null ? "…" : hostCount} sublabel={t("alerts.hostSub")} />
       </div>
 
-      {error && <p className="empty-note">加载失败：{error}</p>}
+      {error && <p className="empty-note">{t("alerts.loadError", { err: error })}</p>}
 
       {rows == null ? (
-        <p className="empty-note">加载中…</p>
+        <p className="empty-note">{t("alerts.loading")}</p>
       ) : rows.length === 0 ? (
-        <p className="empty-note">
-          尚无过流事件 — 电流超过阈值时，两条检测路径（设备 ALERT 引脚 + 后端阈值）会各自记录一条。
-        </p>
+        <p className="empty-note">{t("alerts.empty")}</p>
       ) : (
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>时间</th>
-                <th>来源</th>
-                <th>类型</th>
-                <th>电压 (V)</th>
-                <th>电流 ({currentUnit.label})</th>
-                <th>功率 ({powerUnit.label})</th>
+                <th>{t("col.time")}</th>
+                <th>{t("col.source")}</th>
+                <th>{t("col.type")}</th>
+                <th>{t("col.withUnit", { metric: t("metric.voltage"), unit: "V" })}</th>
+                <th>{t("col.withUnit", { metric: t("metric.current"), unit: currentUnit.label })}</th>
+                <th>{t("col.withUnit", { metric: t("metric.power"), unit: powerUnit.label })}</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={`${r.sys_ts}-${i}`}>
                   <td>{fmtTime(r.sys_ts)}</td>
-                  <td>{SOURCE_LABEL[r.source] ?? r.source}</td>
-                  <td>{TYPE_LABEL[r.type] ?? `0x${r.type?.toString(16)}`}</td>
+                  <td>{SOURCE_KEY[r.source] ? t(SOURCE_KEY[r.source]) : r.source}</td>
+                  <td>{TYPE_KEY[r.type] ? t(TYPE_KEY[r.type]) : `0x${r.type?.toString(16)}`}</td>
                   <td>{r.voltage?.toFixed(3)}</td>
                   <td>{formatValue(r.current, currentUnit)}</td>
                   <td>{formatValue(r.power, powerUnit)}</td>
