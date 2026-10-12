@@ -24,8 +24,22 @@ class ExtremaTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(v == {"min": None, "max": None} for v in empty.values()))
         await self.db._flush([(1, 1, 12, 0, 0, None)])
         result = await self.db.query_extrema()
-        self.assertEqual(result["current"], {"min": 0, "max": 0})
+        self.assertEqual(result["current"], {"min": None, "max": None})
+        self.assertEqual(result["power"], {"min": None, "max": None})
         self.assertEqual(result["temperature"], {"min": None, "max": None})
+
+    async def test_zero_is_ignored_independently_for_each_metric(self):
+        await self.db._flush([
+            (1, 1, 0, -20, 0, 0),
+            (2, 2, 12, 0, -180, None),
+            (3, 3, 15, -10, -120, 25),
+        ])
+        self.assertEqual(await self.db.query_extrema(), {
+            "voltage": {"min": 12, "max": 15},
+            "current": {"min": -20, "max": -10},
+            "power": {"min": -180, "max": -120},
+            "temperature": {"min": 25, "max": 25},
+        })
 
     async def test_api_includes_old_samples_and_survives_restart(self):
         # Old extrema must remain visible beyond the history API's 5000-row cap.

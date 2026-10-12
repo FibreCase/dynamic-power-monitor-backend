@@ -168,11 +168,13 @@ class Database:
         ]
 
     async def query_extrema(self) -> dict:
-        """All-time extrema of persisted samples; NULL temperatures are ignored."""
+        """All-time extrema of persisted samples, ignoring zero and NULL per metric."""
         metrics = ("voltage", "current", "power", "temperature")
 
         def _do() -> dict:
-            columns = ", ".join(f"MIN({key}), MAX({key})" for key in metrics)
+            columns = ", ".join(
+                f"MIN(NULLIF({key}, 0)), MAX(NULLIF({key}, 0))" for key in metrics
+            )
             with self._lock:
                 assert self._conn is not None
                 row = self._conn.execute(f"SELECT {columns} FROM power_logs").fetchone()
