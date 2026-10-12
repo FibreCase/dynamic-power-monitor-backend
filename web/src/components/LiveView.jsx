@@ -254,7 +254,6 @@ export default function LiveView({ health, unitMode = DEFAULT_UNIT_MODE }) {
               {t(LINK_LABEL_KEY[linkStatus])}
             </span>
           </div>
-          {health && <div className="stat-tile__sublabel">{t("live.viewers", { n: health.viewers })}</div>}
         </div>
       </div>
 
