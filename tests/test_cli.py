@@ -8,6 +8,15 @@ from power_monitor import cli
 
 class CliTests(unittest.TestCase):
     @patch("power_monitor.cli.uvicorn.run")
+    @patch("power_monitor.cli.subprocess.run", side_effect=FileNotFoundError())
+    def test_no_npm_starts_without_node(self, build, server):
+        with patch("sys.argv", ["power-monitor", "--no-npm", "--port", "38001"]):
+            cli.main()
+        build.assert_not_called()
+        server.assert_called_once()
+        self.assertEqual(server.call_args.kwargs["port"], 38001)
+
+    @patch("power_monitor.cli.uvicorn.run")
     @patch("power_monitor.cli.subprocess.run")
     def test_build_precedes_server(self, build, server):
         order = []

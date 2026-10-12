@@ -46,6 +46,9 @@ uv run power-monitor
 
 Each launch runs `npm run build` in `web/` before starting the backend. A failed
 build stops startup so the dashboard cannot silently serve an outdated build.
+Use `uv run power-monitor --no-npm` to skip the build without invoking npm or
+Node.js. The dashboard uses existing `web/dist/` assets, which must be built
+beforehand if you want to serve the web UI.
 
 - **TCP ingest** listens on port `38888` — point the firmware's
   `CFG_HOST_IP`/`CFG_HOST_PORT` at this host.

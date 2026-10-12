@@ -28,14 +28,19 @@ def main() -> None:
         help="HTTP port (default: $PM_HTTP_PORT, else 38000)",
     )
     parser.add_argument("--reload", action="store_true", help="auto-reload (dev only)")
+    parser.add_argument(
+        "--no-npm", action="store_true",
+        help="skip frontend build and use existing assets without Node.js/npm",
+    )
     args = parser.parse_args()
-    web_dir = Path(__file__).resolve().parent.parent / "web"
-    try:
-        subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
-    except FileNotFoundError:
-        parser.exit(1, "Frontend build failed: install Node.js/npm and ensure web/ exists.\n")
-    except subprocess.CalledProcessError as exc:
-        parser.exit(exc.returncode, "Frontend build failed; backend was not started.\n")
+    if not args.no_npm:
+        web_dir = Path(__file__).resolve().parent.parent / "web"
+        try:
+            subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
+        except FileNotFoundError:
+            parser.exit(1, "Frontend build failed: install Node.js/npm and ensure web/ exists.\n")
+        except subprocess.CalledProcessError as exc:
+            parser.exit(exc.returncode, "Frontend build failed; backend was not started.\n")
     uvicorn.run(
         "power_monitor.app:app",
         host=args.host,

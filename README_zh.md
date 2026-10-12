@@ -41,6 +41,8 @@ uv run power-monitor
 ```
 
 每次启动会先在 `web/` 中执行 `npm run build`，构建成功后才启动后端；构建失败则停止启动。
+使用 `uv run power-monitor --no-npm` 可跳过构建，不调用 npm 或 Node.js。
+面板使用已有的 `web/dist/` 文件；如需 Web 界面，请提前准备构建产物。
 
 - **TCP 接收** 监听端口 `38888` —— 把固件的 `CFG_HOST_IP`/`CFG_HOST_PORT` 指向本机。
 - **`ws://<host>:38000/ws`** —— 实时采样广播。
