@@ -210,7 +210,7 @@ export default function LiveView({ health, unitMode = DEFAULT_UNIT_MODE }) {
 
   return (
     <div>
-      <div className="stat-row">
+      <div className="stat-row live-stat-row">
         <StatTile
           label={t("metric.voltage")}
           value={fmt(latest?.voltage, 3)}
@@ -239,17 +239,23 @@ export default function LiveView({ health, unitMode = DEFAULT_UNIT_MODE }) {
           dotColor={METRIC_COLORS.temperature}
           sublabel={rangeText(summary?.temperature, 1)}
         />
-        <StatTile
-          label={t("metric.device")}
-          value={t(deviceState.labelKey)}
-          tone={deviceState.tone}
-        />
-        <StatTile
-          label={t("metric.link")}
-          value={t(LINK_LABEL_KEY[linkStatus])}
-          tone={LINK_TONE[linkStatus]}
-          sublabel={health ? t("live.viewers", { n: health.viewers }) : undefined}
-        />
+        <div className="stat-tile live-status">
+          <div className="live-status__row">
+            <span className="live-status__label">{t("metric.device")}</span>
+            <span className={`status-pill status-pill--${deviceState.tone}`}>
+              <span className="status-pill__dot" />
+              {t(deviceState.labelKey)}
+            </span>
+          </div>
+          <div className="live-status__row">
+            <span className="live-status__label">{t("metric.link")}</span>
+            <span className={`status-pill status-pill--${LINK_TONE[linkStatus]}`}>
+              <span className="status-pill__dot" />
+              {t(LINK_LABEL_KEY[linkStatus])}
+            </span>
+          </div>
+          {health && <div className="stat-tile__sublabel">{t("live.viewers", { n: health.viewers })}</div>}
+        </div>
       </div>
 
       <div className="chart-card">

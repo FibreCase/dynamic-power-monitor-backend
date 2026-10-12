@@ -252,6 +252,49 @@ body {
   margin-top: 4px;
 }
 
+.live-stat-row {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+@media (min-width: 1050px) {
+  .live-stat-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) 200px;
+  }
+}
+
+.live-stat-row .stat-tile__sublabel {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-stat-row .stat-tile__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.live-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.live-status__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live-status .status-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding-inline: 6px;
+}
+
+.live-status__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* -- Chart card ---------------------------------------------------------- */
 
 .chart-card {
