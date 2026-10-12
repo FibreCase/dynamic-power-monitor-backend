@@ -31,7 +31,7 @@ ESP32 固件与完整硬件上下文在父仓库中 —— 线格式与设备侧
 ## 依赖
 
 - Python ≥ 3.10，使用 [uv](https://docs.astral.sh/uv/) 管理
-- Node.js + npm（仅当需要构建 / 开发 `web/` 面板时）
+- Node.js + npm（首次运行前在 `web/` 中执行 `npm install`）
 
 ## 快速开始
 
@@ -39,6 +39,8 @@ ESP32 固件与完整硬件上下文在父仓库中 —— 线格式与设备侧
 uv sync
 uv run power-monitor
 ```
+
+每次启动会先在 `web/` 中执行 `npm run build`，构建成功后才启动后端；构建失败则停止启动。
 
 - **TCP 接收** 监听端口 `38888` —— 把固件的 `CFG_HOST_IP`/`CFG_HOST_PORT` 指向本机。
 - **`ws://<host>:38000/ws`** —— 实时采样广播。

@@ -80,6 +80,7 @@ const STRINGS = {
     "col.type": "类型",
 
     "alerts.total": "事件总数",
+    "alerts.extrema": "历史测量极值",
     "alerts.device": "设备告警",
     "alerts.host": "后端阈值",
     "alerts.deviceSub": "INA226 ALERT 引脚",
@@ -167,6 +168,7 @@ const STRINGS = {
     "col.type": "Type",
 
     "alerts.total": "Total events",
+    "alerts.extrema": "All-time measurement extrema",
     "alerts.device": "Device alerts",
     "alerts.host": "Backend threshold",
     "alerts.deviceSub": "INA226 ALERT pin",

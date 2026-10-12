@@ -34,6 +34,10 @@ export function fetchHealth() {
   return getJson("/healthz");
 }
 
+export function fetchExtrema() {
+  return getJson("/api/v1/extrema");
+}
+
 export function fetchHistory({ startTs, endTs, limit = 500 } = {}) {
   const params = new URLSearchParams();
   if (startTs != null) params.set("start_ts", startTs);

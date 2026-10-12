@@ -167,6 +167,22 @@ class Database:
             for r in rows
         ]
 
+    async def query_extrema(self) -> dict:
+        """All-time extrema of persisted samples; NULL temperatures are ignored."""
+        metrics = ("voltage", "current", "power", "temperature")
+
+        def _do() -> dict:
+            columns = ", ".join(f"MIN({key}), MAX({key})" for key in metrics)
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(f"SELECT {columns} FROM power_logs").fetchone()
+            return {
+                key: {"min": row[i * 2], "max": row[i * 2 + 1]}
+                for i, key in enumerate(metrics)
+            }
+
+        return await asyncio.to_thread(_do)
+
     async def put_event(
         self, sys_ts: int, dev_ts: int, source: str, etype: int,
         voltage: float, current: float, power: float,

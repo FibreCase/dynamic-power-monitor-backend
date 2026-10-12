@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchAlerts } from "../api";
+import { fetchAlerts, fetchExtrema } from "../api";
 import { DEFAULT_UNIT_MODE, getUnit, formatValue } from "../units";
 import { useT } from "../i18n";
 import StatTile from "./StatTile";
@@ -27,6 +27,8 @@ export default function AlertView({ unitMode = DEFAULT_UNIT_MODE }) {
   const t = useT();
   const [rows, setRows] = useState(null); // null = never loaded yet
   const [error, setError] = useState(null);
+  const [extrema, setExtrema] = useState(null);
+  const [extremaError, setExtremaError] = useState(null);
 
   const currentUnit = getUnit("current", unitMode);
   const powerUnit = getUnit("power", unitMode);
@@ -38,6 +40,12 @@ export default function AlertView({ unitMode = DEFAULT_UNIT_MODE }) {
         setError(null);
       })
       .catch((err) => setError(String(err.message ?? err)));
+    fetchExtrema()
+      .then((data) => {
+        setExtrema(data);
+        setExtremaError(null);
+      })
+      .catch((err) => setExtremaError(String(err.message ?? err)));
   }, []);
 
   useEffect(() => {
@@ -57,6 +65,24 @@ export default function AlertView({ unitMode = DEFAULT_UNIT_MODE }) {
         <StatTile label={t("alerts.device")} value={rows == null ? "…" : deviceCount} sublabel={t("alerts.deviceSub")} />
         <StatTile label={t("alerts.host")} value={rows == null ? "…" : hostCount} sublabel={t("alerts.hostSub")} />
       </div>
+
+      <h2>{t("alerts.extrema")}</h2>
+      <div className="stat-row">
+        {[
+          ["voltage", { label: "V", factor: 1, digits: 3 }],
+          ["current", currentUnit],
+          ["power", powerUnit],
+          ["temperature", { label: "°C", factor: 1, digits: 1 }],
+        ].map(([metric, unit]) => (
+          <StatTile
+            key={metric}
+            label={t(`metric.${metric}`)}
+            value={extrema == null ? "…" : `${formatValue(extrema[metric]?.min, unit)} - ${formatValue(extrema[metric]?.max, unit)}`}
+            unit={unit.label}
+          />
+        ))}
+      </div>
+      {extremaError && <p className="empty-note">{t("alerts.loadError", { err: extremaError })}</p>}
 
       {error && <p className="empty-note">{t("alerts.loadError", { err: error })}</p>}
 

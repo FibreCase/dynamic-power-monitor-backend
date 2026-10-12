@@ -35,7 +35,7 @@ its `README.md` / `CLAUDE.md` for the wire format and device side.
 ## Requirements
 
 - Python ≥ 3.10, managed with [uv](https://docs.astral.sh/uv/)
-- Node.js + npm, only if you want to build/develop the dashboard (`web/`)
+- Node.js + npm for the dashboard build (run `npm install` in `web/` once)
 
 ## Quick start
 
@@ -43,6 +43,9 @@ its `README.md` / `CLAUDE.md` for the wire format and device side.
 uv sync
 uv run power-monitor
 ```
+
+Each launch runs `npm run build` in `web/` before starting the backend. A failed
+build stops startup so the dashboard cannot silently serve an outdated build.
 
 - **TCP ingest** listens on port `38888` — point the firmware's
   `CFG_HOST_IP`/`CFG_HOST_PORT` at this host.

@@ -78,6 +78,7 @@ class App:
         self.app.websocket("/ws")(self._ws)
         self.app.get("/api/v1/history")(self._history)
         self.app.get("/api/v1/alerts")(self._alerts)
+        self.app.get("/api/v1/extrema")(self._extrema)
         self.app.get("/healthz")(self._healthz)
 
         # OTA firmware: upload (.bin) -> stored on disk -> served to the ESP32
@@ -204,6 +205,9 @@ class App:
         limit: int = Query(500, ge=1, le=5000),
     ):
         return await self.db.query_history(start_ts=start_ts, end_ts=end_ts, limit=limit)
+
+    async def _extrema(self):
+        return await self.db.query_extrema()
 
     async def _alerts(
         self,

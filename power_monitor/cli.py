@@ -6,6 +6,8 @@ variables (see config.py); the --host / --port flags override them when given.
 from __future__ import annotations
 
 import argparse
+import subprocess
+from pathlib import Path
 
 import uvicorn
 
@@ -27,6 +29,13 @@ def main() -> None:
     )
     parser.add_argument("--reload", action="store_true", help="auto-reload (dev only)")
     args = parser.parse_args()
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    try:
+        subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
+    except FileNotFoundError:
+        parser.exit(1, "Frontend build failed: install Node.js/npm and ensure web/ exists.\n")
+    except subprocess.CalledProcessError as exc:
+        parser.exit(exc.returncode, "Frontend build failed; backend was not started.\n")
     uvicorn.run(
         "power_monitor.app:app",
         host=args.host,
